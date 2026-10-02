@@ -27,21 +27,24 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo test --release
-  no-simd:
-    name: scalar fallback
+  scalar:
+    name: scalar fallback (riscv64, qemu)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
-        env:
-          RUSTFLAGS: -C target-feature=-sse,-sse2,-avx,-avx2
+      - uses: taiki-e/install-action@cross
+      - run: cross test --target riscv64gc-unknown-linux-gnu
   vectors:
     name: vector data is current
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - run: |
           git clone --depth 1 https://github.com/tandem-rng/spec ../tandem-spec
           python3 tools/gen_vectors.py ../tandem-spec/vectors.json > tests/vectors_data/mod.rs
+          rustfmt --edition 2024 tests/vectors_data/mod.rs
           git diff --exit-code tests/vectors_data/mod.rs

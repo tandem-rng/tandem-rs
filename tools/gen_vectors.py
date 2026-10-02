@@ -2,6 +2,7 @@
 """Turn the spec's vectors.json into tests/vectors_data/mod.rs, so the tests need no JSON parser.
 
 Usage: tools/gen_vectors.py path/to/vectors.json > tests/vectors_data/mod.rs
+Then run rustfmt on the file; CI compares the formatted output.
 """
 import json
 import sys
