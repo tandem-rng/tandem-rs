@@ -4,9 +4,7 @@
 
 Rust implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a noncryptographic
 pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate is
-`tandem-rng`. It produces the same stream, bit for bit, as the Julia reference
-[TandemRNG.jl](https://github.com/tandem-rng/TandemRNG.jl) and the C reference
-[tandem-c](https://github.com/tandem-rng/tandem-c), and runs as fast as the C.
+`tandem-rng`. It produces the stream the specification defines, bit for bit.
 
 - `no_std`, `#![forbid(unsafe_code)]`. Two dependencies: `rand_core` for the traits and
   `wide` for portable vectors, which lower to NEON, SSE/AVX2 or scalar code.
@@ -55,21 +53,21 @@ cargo test
 `tests/vectors.rs` checks every vector of the specification. `tests/vectors_data/mod.rs` is
 generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, and CI fails
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
-against dumps written by TandemRNG.jl (`tests/data`, shared with tandem-c).
+against reference stream dumps in `tests/data`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 
 ## Speed
 
 Apple M4, one thread, `cargo run --release --example bench`, minimum of seven runs of 2^24
-elements after a warm-up, next to tandem-c's `make bench` in the same minute (load 5):
+elements after a warm-up, load 5:
 
-| | GiB/s | tandem-c |
-|---|---|---|
-| `fill_u32` | 15.9 | 16.0 |
-| `fill_u64` | 15.9 | 16.0 |
-| `fill_f32` | 12.5 | 12.6 |
-| `fill_f64` | 12.5 | 12.5 |
-| `next_f64` chain, ns per draw | 1.47 | 1.58 |
+| | GiB/s |
+|---|---|
+| `fill_u32` | 15.9 |
+| `fill_u64` | 15.9 |
+| `fill_f32` | 12.5 |
+| `fill_f64` | 12.5 |
+| `next_f64` chain, ns per draw | 1.47 |
 
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
 4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one

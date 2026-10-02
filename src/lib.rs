@@ -1,7 +1,7 @@
 //! Tandem8x32: a noncryptographic pseudorandom number generator, fast on CPUs and GPUs alike.
 //!
 //! This crate implements the [specification](https://github.com/tandem-rng/spec) and
-//! produces the same stream, bit for bit, as the Julia and C references. A [`Tandem`] is its
+//! produces the stream the specification defines, bit for bit. A [`Tandem`] is its
 //! transport form (128-bit key, 64-bit bit position, chunk length `K`) plus a cache of the
 //! current 1024-bit row, so it is `Copy` and cheap to clone.
 //!
