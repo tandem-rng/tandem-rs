@@ -1,0 +1,23 @@
+[package]
+name = "tandem-rng"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Tandem8x32: a noncryptographic pseudorandom number generator, fast on CPUs and GPUs alike"
+license = "Apache-2.0"
+repository = "https://github.com/tandem-rng/tandem-rs"
+documentation = "https://docs.rs/tandem-rng"
+keywords = ["random", "rng", "prng", "splittable", "counter-based"]
+categories = ["algorithms", "no-std"]
+include = ["src/**", "README.md", "LICENSE", "NOTICE"]
+
+[dependencies]
+bytemuck = { version = "1", default-features = false }
+rand_core = "0.10"
+wide = { version = "1.7", default-features = false }
+
+[profile.bench]
+debug = false
+
+[profile.release]
+codegen-units = 1
