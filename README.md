@@ -15,6 +15,7 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   the current block, sub by purpose.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
+- The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
 
 ## Use
 
@@ -44,6 +45,32 @@ let z: f64 = rng.sample(StandardNormal);
 `SeedableRng::from_seed` reads its 16 bytes as a little-endian 128-bit seed and whitens it as
 the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
 
+## GPU
+
+```toml
+tandem-rng = { version = "0.1", features = ["wgpu"] }
+```
+
+```rust
+use tandem_rng::{Tandem, gpu::GpuFill};
+
+let gpu = GpuFill::new_default().expect("a wgpu adapter");
+let mut rng = Tandem::new(42);
+let words: Vec<u32> = gpu.read_u32(&mut rng, 1 << 20);  // the values of rng.fill_u32
+let out = gpu.device().create_buffer(&wgpu::BufferDescriptor {
+    label: None,
+    size: GpuFill::buffer_size(&rng, 32, 1 << 24),
+    usage: wgpu::BufferUsages::STORAGE,
+    mapped_at_creation: false,
+});
+let span = gpu.fill_words(&mut rng, &out, 1 << 24);     // stays on the GPU
+```
+
+`GpuFill::new` takes a device and queue the application owns. Every GPU fill advances the
+generator exactly as the CPU fill does, so CPU and GPU draws can be mixed on one stream.
+`src/tandem.wgsl` is the shader. WGSL has no 64-bit integers, so it builds the 32x32 to
+64-bit product from 16-bit halves, which is exact. The feature pulls in `std`.
+
 ## Tests
 
 ```sh
@@ -55,19 +82,21 @@ generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, a
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
 against reference stream dumps in `tests/data`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
+`tests/gpu.rs` (with `--features wgpu`) compares GPU fills with the CPU fills over keys, chunk
+lengths, positions and lengths, and with the dumps. It skips without an adapter.
 
 ## Speed
 
 Apple M4, one thread, `cargo run --release --example bench`, minimum of seven runs of 2^24
-elements after a warm-up, load 5:
+elements after a warm-up, load 2:
 
 | | GiB/s |
 |---|---|
-| `fill_u32` | 15.9 |
-| `fill_u64` | 15.9 |
-| `fill_f32` | 12.5 |
-| `fill_f64` | 12.5 |
-| `next_f64` chain, ns per draw | 1.47 |
+| `fill_u32` | 16.4 |
+| `fill_u64` | 16.4 |
+| `fill_f32` | 13.8 |
+| `fill_f64` | 13.0 |
+| `next_f64` chain, ns per draw | 1.42 |
 
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
 4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one
@@ -75,6 +104,21 @@ routine serves all widths and floats convert in place. The struct is `repr(C)`: 
 default layout the compiler pairs the loads of the position and the cached row index into
 one 16-byte load right after the 8-byte store of the position, which defeats store
 forwarding and doubles the cost of a scalar draw.
+
+GPU fill into device memory, `cargo run --release --features wgpu --example bench_gpu [log2 words]`,
+minimum of seven after a half-second warm-up. `TANDEM_GPU_ADAPTER=<index>` picks the adapter on
+hosts with several GPUs.
+
+| | words | one fill per submit | 32 fills per submit |
+|---|---|---|---|
+| Apple M4 Pro, Metal, load 4 | 2^26 | 164 GiB/s | 189 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle, host load 21 | 2^26 | 775 GiB/s | 1040 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle, host load 21 | 2^28 | 1100 GiB/s | 1215 GiB/s |
+
+The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100 the fill
+with direct 16-byte stores runs near the card's bandwidth once the buffer is large enough to
+hide the submit and clock ramp. The A100 host had no system Vulkan loader: a conda-forge
+`libvulkan-loader` on `LD_LIBRARY_PATH` with the driver's own ICD was enough.
 
 ## License
 

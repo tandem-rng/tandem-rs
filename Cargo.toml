@@ -13,7 +13,9 @@ include = ["src/**", "README.md", "LICENSE", "NOTICE"]
 
 [dependencies]
 bytemuck = { version = "1", default-features = false }
+pollster = { version = "1", optional = true }
 rand_core = "0.10"
+wgpu = { version = "30", optional = true, default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
 wide = { version = "1.7", default-features = false }
 
 [profile.bench]
@@ -21,3 +23,14 @@ debug = false
 
 [profile.release]
 codegen-units = 1
+
+[features]
+# GPU fills through wgpu. Pulls in std.
+wgpu = ["dep:wgpu", "dep:pollster"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "bench_gpu"
+required-features = ["wgpu"]

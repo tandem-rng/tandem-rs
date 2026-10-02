@@ -20,11 +20,18 @@
 //! `Tandem` implements `rand_core`'s [`TryRng`](rand_core::TryRng) (and so
 //! [`Rng`](rand_core::Rng)) and [`SeedableRng`](rand_core::SeedableRng), so it drives every
 //! `rand` distribution.
+//!
+//! The `wgpu` feature adds [`gpu::GpuFill`], the same fill run as a compute shader.
 
 #![no_std]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "wgpu")]
+extern crate std;
+
+#[cfg(feature = "wgpu")]
+pub mod gpu;
 mod rand;
 
 use wide::{u32x4, u64x2};
@@ -230,18 +237,18 @@ impl Lanes {
 // ---- Reads and conversions ----------------------------------------------------------------
 
 #[inline(always)]
-fn align(pos: u64, w: u32) -> u64 {
+pub(crate) fn align(pos: u64, w: u32) -> u64 {
     let w = u64::from(w);
     (pos + w - 1) & !(w - 1)
 }
 
 #[inline(always)]
-fn to_f64(raw: u64) -> f64 {
+pub(crate) fn to_f64(raw: u64) -> f64 {
     (raw >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
 }
 
 #[inline(always)]
-fn to_f32(raw: u32) -> f32 {
+pub(crate) fn to_f32(raw: u32) -> f32 {
     (raw >> 8) as f32 * (1.0 / (1u32 << 24) as f32)
 }
 
