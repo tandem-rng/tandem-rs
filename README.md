@@ -88,7 +88,7 @@ lengths, positions and lengths, and with the dumps. It skips without an adapter.
 ## Speed
 
 Apple M4, one thread, `cargo run --release --example bench`, minimum of seven runs of 2^24
-elements after a warm-up, load 2:
+elements after a warm-up:
 
 | | GiB/s |
 |---|---|
@@ -111,9 +111,9 @@ hosts with several GPUs.
 
 | | words | one fill per submit | 32 fills per submit |
 |---|---|---|---|
-| Apple M4 Pro, Metal, load 4 | 2^26 | 164 GiB/s | 189 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle, host load 21 | 2^26 | 775 GiB/s | 1040 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle, host load 21 | 2^28 | 1100 GiB/s | 1215 GiB/s |
+| Apple M4 Pro, Metal | 2^26 | 164 GiB/s | 189 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle | 2^26 | 775 GiB/s | 1040 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan, GPU idle | 2^28 | 1100 GiB/s | 1215 GiB/s |
 
 The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100 the fill
 with direct 16-byte stores runs near the card's bandwidth once the buffer is large enough to
