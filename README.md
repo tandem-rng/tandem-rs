@@ -16,6 +16,9 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
+- The `simd-intrinsics` feature spells the widening multiply and the float row stores with
+  NEON or SSE2 intrinsics. It admits `unsafe` in one private module, so the crate root
+  then says `deny(unsafe_code)` instead of `forbid`. The stream is the same.
 
 ## Use
 
@@ -82,25 +85,47 @@ generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, a
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
 against reference stream dumps in `tests/data`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
+`tests/intrinsics.rs` (with `--features simd-intrinsics`) compares every fill with the
+stream built from the scalar `block`, at offsets and lengths that cut rows and chunks.
 `tests/gpu.rs` (with `--features wgpu`) compares GPU fills with the CPU fills over keys, chunk
 lengths, positions and lengths, and with the dumps. It skips without an adapter.
 
 ## Speed
 
-Apple M4, one thread, `cargo run --release --example bench`, minimum of seven runs of 2^24
-elements after a warm-up:
+One thread, `cargo run --release --example bench` (add `--features simd-intrinsics` for the
+second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s:
 
-| | GiB/s |
-|---|---|
-| `fill_u32` | 16.4 |
-| `fill_u64` | 16.4 |
-| `fill_f32` | 13.8 |
-| `fill_f64` | 13.0 |
-| `next_f64` chain, ns per draw | 1.42 |
+| Apple M4 | default | `simd-intrinsics` |
+|---|---|---|
+| `fill_u32` | 21.8 | 21.4 |
+| `fill_u64` | 21.5 | 21.4 |
+| `fill_f32` | 17.1 | 18.6 |
+| `fill_f64` | 16.9 | 18.5 |
+| `next_f64` chain, ns per draw | 1.39 | 1.42 |
+
+| AMD EPYC 7702P, SSE2 baseline | default | `simd-intrinsics` |
+|---|---|---|
+| `fill_u32` | 5.2 | 5.7 |
+| `fill_u64` | 5.2 | 5.7 |
+| `fill_f32` | 4.6 | 4.8 |
+| `fill_f64` | 3.5 | 4.4 |
+| `next_f64` chain, ns per draw | 4.99 | 4.88 |
 
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
 4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one
-routine serves all widths and floats convert in place. The struct is `repr(C)`: with the
+routine serves all widths. By default floats convert in a second pass over the row while it
+is in L1. The seed rounds run on a local that swaps its halves by value, since `mem::swap`
+of the fields made LLVM split the vectors into 64-bit halves.
+
+`simd-intrinsics` maps each 16-byte block to floats before the store: `ucvtf` with 24 or
+53 fraction bits on AArch64, the signed convert for `f32` and an exact two-part
+exponent trick for `f64` on SSE2, which has no 64-bit convert. It also forms both halves of
+the 32x32 to 64-bit products from two widening multiplies (`umull` and `umull2` with two
+unzips, or two `pmuludq`). On AArch64 LLVM already uses `umull` for the high half, so
+integers do not gain there. On SSE2 the portable multiply costs four `pmuludq` per
+product.
+
+The struct is `repr(C)`: with the
 default layout the compiler pairs the loads of the position and the cached row index into
 one 16-byte load right after the 8-byte store of the position, which defeats store
 forwarding and doubles the cost of a scalar draw.

@@ -10,13 +10,14 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / ${{ matrix.rust }}
+    name: ${{ matrix.os }} / ${{ matrix.rust }} ${{ matrix.features }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         rust: [stable, "1.89"]
+        features: ["", simd-intrinsics]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
@@ -24,9 +25,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-      - run: cargo test --release
+      - run: cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
+      - run: cargo test --features "${{ matrix.features }}"
+      - run: cargo test --release --features "${{ matrix.features }}"
   gpu:
     name: ${{ matrix.os }} / wgpu
     runs-on: ${{ matrix.os }}
@@ -60,6 +61,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cross
       - run: cross test --target riscv64gc-unknown-linux-gnu
+      - run: cross test --target riscv64gc-unknown-linux-gnu --features simd-intrinsics
   vectors:
     name: vector data is current
     runs-on: ubuntu-latest

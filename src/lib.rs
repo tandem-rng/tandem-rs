@@ -22,14 +22,22 @@
 //! `rand` distribution.
 //!
 //! The `wgpu` feature adds [`gpu::GpuFill`], the same fill run as a compute shader.
+//!
+//! The `simd-intrinsics` feature spells the widening multiply and the float row stores with
+//! NEON or SSE2 intrinsics. It admits `unsafe` in one private module and leaves the stream
+//! as it is.
 
 #![no_std]
-#![forbid(unsafe_code)]
+// The `simd-intrinsics` feature admits `unsafe` in `arch` alone.
+#![cfg_attr(not(feature = "simd-intrinsics"), forbid(unsafe_code))]
+#![cfg_attr(feature = "simd-intrinsics", deny(unsafe_code))]
 #![warn(missing_docs)]
 
 #[cfg(feature = "wgpu")]
 extern crate std;
 
+#[cfg(feature = "simd-intrinsics")]
+mod arch;
 #[cfg(feature = "wgpu")]
 pub mod gpu;
 mod rand;
@@ -152,6 +160,16 @@ fn transpose([a, b, c, d]: [u32x4; 4]) -> [u32x4; 4] {
     ]
 }
 
+/// Low and high words of the four 32x32 to 64-bit products.
+#[cfg(not(feature = "simd-intrinsics"))]
+#[inline(always)]
+fn mul_wide(a: u32x4, b: u32x4) -> (u32x4, u32x4) {
+    (a * b, a.mul_keep_high(b))
+}
+
+#[cfg(feature = "simd-intrinsics")]
+use arch::mul_wide;
+
 #[inline(always)]
 fn rotl(x: u32x4, r: u32) -> u32x4 {
     x.unbounded_shl_scalar(r) | x.unbounded_shr_scalar(32 - r)
@@ -163,8 +181,8 @@ impl Quad {
         let Quad { o, h } = self;
         let m0 = h[0] | ONE4;
         let m1 = h[1] | ONE4;
-        let (lo0, hi0) = (o[0] * m0, o[0].mul_keep_high(m0));
-        let (lo1, hi1) = (o[2] * m1, o[2].mul_keep_high(m1));
+        let (lo0, hi0) = mul_wide(o[0], m0);
+        let (lo1, hi1) = mul_wide(o[2], m1);
         let n0 = o[1] ^ hi1 ^ lo1;
         let n1 = rotl(lo1, 16) ^ h[2];
         let n2 = o[3] ^ hi0 ^ lo0;
@@ -292,16 +310,22 @@ trait Elem: bytemuck::Pod {
     /// Write one row of `1024 / BITS` elements, given as the row's eight blocks.
     #[inline(always)]
     fn store_row(blocks: &[u32x4; 8], dst: &mut [Self]) {
-        // A fixed length lets the stores go straight to `dst`, not through a stack copy.
-        let bytes: &mut [u8; 128] = bytemuck::cast_slice_mut(dst)
-            .try_into()
-            .expect("a row is 128 bytes");
-        for (block, out) in blocks.iter().zip(bytes.as_chunks_mut::<16>().0) {
-            out.copy_from_slice(bytemuck::bytes_of(&block.to_array().map(u32::to_le)));
-        }
-        for x in dst {
-            x.fix();
-        }
+        store_le(blocks, dst)
+    }
+}
+
+/// The default row store: the bytes, then the fix-up.
+#[inline(always)]
+pub(crate) fn store_le<T: Elem>(blocks: &[u32x4; 8], dst: &mut [T]) {
+    // A fixed length lets the stores go straight to `dst`, not through a stack copy.
+    let bytes: &mut [u8; 128] = bytemuck::cast_slice_mut(dst)
+        .try_into()
+        .expect("a row is 128 bytes");
+    for (block, out) in blocks.iter().zip(bytes.as_chunks_mut::<16>().0) {
+        out.copy_from_slice(bytemuck::bytes_of(&block.to_array().map(u32::to_le)));
+    }
+    for x in dst {
+        x.fix();
     }
 }
 
@@ -351,6 +375,11 @@ impl Elem for f32 {
     fn fix(&mut self) {
         *self = to_f32(u32::from_le(self.to_bits()));
     }
+    #[cfg(feature = "simd-intrinsics")]
+    #[inline(always)]
+    fn store_row(blocks: &[u32x4; 8], dst: &mut [f32]) {
+        arch::store_f32(blocks, dst.try_into().expect("a row is 32 floats"))
+    }
 }
 
 impl Elem for f64 {
@@ -362,6 +391,11 @@ impl Elem for f64 {
     #[inline(always)]
     fn fix(&mut self) {
         *self = to_f64(u64::from_le(self.to_bits()));
+    }
+    #[cfg(feature = "simd-intrinsics")]
+    #[inline(always)]
+    fn store_row(blocks: &[u32x4; 8], dst: &mut [f64]) {
+        arch::store_f64(blocks, dst.try_into().expect("a row is 16 doubles"))
     }
 }
 

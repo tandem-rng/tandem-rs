@@ -25,6 +25,9 @@ debug = false
 codegen-units = 1
 
 [features]
+# NEON and SSE2 intrinsics for the widening multiply and the float row stores. Admits
+# `unsafe` in one module. The stream is the same.
+simd-intrinsics = []
 # GPU fills through wgpu. Pulls in std.
 wgpu = ["dep:wgpu", "dep:pollster"]
 
