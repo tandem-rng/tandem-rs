@@ -125,6 +125,8 @@ struct Lanes {
 // Hoisted: materialising a splat inside the step costs a call per use.
 const WEYL4: u32x4 = u32x4::splat(CLOCK_WEYL);
 const ONE4: u32x4 = u32x4::splat(1);
+const DOMAIN_STREAM4: u32x4 = u32x4::splat(DOMAIN_STREAM);
+const AUX_STREAM4: u32x4 = u32x4::splat(AUX_STREAM);
 const RC4: [u32x4; 8] = [
     u32x4::splat(RC[0]),
     u32x4::splat(RC[1]),
@@ -176,20 +178,26 @@ impl Quad {
     }
 
     /// `F` on chunks `c0 .. c0 + 4` at once.
+    // The rounds run on a local and swap by value: `mem::swap` of the fields made LLVM split
+    // every vector into 64-bit halves. Out of line, the row loop kept state on the stack.
+    #[inline(always)]
     fn seed(&mut self, key: &[u32; 4], c0: u64) {
         let lo = c0 as u32;
-        self.o = [
-            u32x4::new([lo, lo + 1, lo + 2, lo + 3]),
-            u32x4::splat((c0 >> 32) as u32),
-            u32x4::splat(DOMAIN_STREAM),
-            u32x4::splat(AUX_STREAM),
-        ];
-        self.h = key.map(u32x4::splat);
-        for rc in RC4 {
-            self.step();
-            self.o[0] ^= rc;
-            core::mem::swap(&mut self.o, &mut self.h);
+        let mut q = Quad {
+            o: [
+                u32x4::new([lo, lo + 1, lo + 2, lo + 3]),
+                u32x4::splat((c0 >> 32) as u32),
+                DOMAIN_STREAM4,
+                AUX_STREAM4,
+            ],
+            h: key.map(u32x4::splat),
+        };
+        for rc in &RC4 {
+            q.step();
+            q.o[0] ^= *rc;
+            q = Quad { o: q.h, h: q.o };
         }
+        *self = q;
     }
 }
 
@@ -220,6 +228,7 @@ impl Lanes {
     }
 
     /// `F` on the eight chunks of group `g` at once.
+    #[inline(always)]
     fn seed(&mut self, key: &[u32; 4], g: u64) {
         self.q[0].seed(key, 8 * g);
         self.q[1].seed(key, 8 * g + 4);
@@ -283,7 +292,10 @@ trait Elem: bytemuck::Pod {
     /// Write one row of `1024 / BITS` elements, given as the row's eight blocks.
     #[inline(always)]
     fn store_row(blocks: &[u32x4; 8], dst: &mut [Self]) {
-        let bytes: &mut [u8] = bytemuck::cast_slice_mut(dst);
+        // A fixed length lets the stores go straight to `dst`, not through a stack copy.
+        let bytes: &mut [u8; 128] = bytemuck::cast_slice_mut(dst)
+            .try_into()
+            .expect("a row is 128 bytes");
         for (block, out) in blocks.iter().zip(bytes.as_chunks_mut::<16>().0) {
             out.copy_from_slice(bytemuck::bytes_of(&block.to_array().map(u32::to_le)));
         }
