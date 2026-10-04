@@ -26,13 +26,15 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - A Box-Muller pair uses two uniform draws. `normal_*` returns its cos half and `normal2_*`
   the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
   length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
-  draws and run in `f32`, so ports agree on them to a few ulps, not bit for bit.
+  draws and run in `f32`. They match tandem-c bit for bit and the device core to a few ulps.
 - Normals are Box-Muller on whole blocks of uniforms in plain Rust that the compiler
   vectorises, with tandem-c's arithmetic: an exponent split and a short atanh series for the
-  logarithm, an exact quarter-turn reduction for the sine and cosine. No libm is called. The
-  `std` feature fuses the multiply-adds on aarch64 and FMA targets, so the last bits of a
-  normal differ between targets by an ulp or two. The scalar draws and the fills agree bit
-  for bit on one target.
+  logarithm, an exact quarter-turn reduction for the sine and cosine. No libm is called. With
+  `std` every multiply-add is a fused `mul_add`, so the normals are bit identical to
+  tandem-c's on every target, and to each other across scalar draws and fills. The x86_64
+  build with `simd-intrinsics` compiles a copy of the loop with `fma` and picks it at run
+  time. Without a fused instruction `mul_add` is a correct but slower library call. Without
+  `std` the plain form differs from tandem-c in the last bits.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
@@ -125,7 +127,12 @@ when it is out of date. `tests/streams.rs` compares long fills, scalar draws and
 against reference stream dumps in `tests/data`, complex fills included.
 `tests/derived.rs` compares bounded integers, bounded fills and normals with the cross-check
 values of `tandem-c`, which it generates from the `tandem-cuda` core (`tools/gen_derived.py`
-converts them), and the fills with their definitions.
+converts them), and the fills with their definitions. Those values come from the device core
+and its libm, so the comparison has a tolerance.
+`tests/normal_bits.rs` (with `std`) hashes 1e6 pairs of `f64` and `f32` normals from five
+positions and compares with the hash in tandem-c's `tests/test_normal_bits.c`. `cargo run
+--release --example dump_normals | shasum -a 256` writes the same bytes as tandem-c's
+`tools/dump_normals.c`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.

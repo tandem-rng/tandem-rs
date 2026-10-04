@@ -183,6 +183,37 @@ mod avx2 {
         })
     }
 
+    /// Whether the normal loops can use fused multiply-add instructions: the same switch as
+    /// `available`, because every x86_64 CPU with AVX2 has FMA3 in practice and the check says
+    /// so.
+    pub(crate) fn fma_available() -> bool {
+        available() && std::is_x86_feature_detected!("fma")
+    }
+
+    /// The normal loop compiled with FMA, so `mul_add` is one instruction and the loop
+    /// vectorises. The bits are the same as without.
+    pub(crate) fn block_f64_fma(u: &[f64], z: &mut [f64]) {
+        assert!(fma_available(), "AVX2 and FMA are required");
+        // SAFETY: the check above is the requirement of the target features.
+        unsafe { block_f64_avx2_fma(u, z) }
+    }
+
+    pub(crate) fn block_f32_fma(u: &[f32], z: &mut [f32]) {
+        assert!(fma_available(), "AVX2 and FMA are required");
+        // SAFETY: the check above is the requirement of the target features.
+        unsafe { block_f32_avx2_fma(u, z) }
+    }
+
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn block_f64_avx2_fma(u: &[f64], z: &mut [f64]) {
+        crate::boxmuller::block_f64_body(u, z)
+    }
+
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn block_f32_avx2_fma(u: &[f32], z: &mut [f32]) {
+        crate::boxmuller::block_f32_body(u, z)
+    }
+
     /// The loop of `run_rows` on 256-bit registers.
     ///
     /// # Panics
@@ -348,4 +379,6 @@ mod avx2 {
 }
 
 #[cfg(all(feature = "std", target_arch = "x86_64"))]
-pub(crate) use avx2::{available as avx2_available, run_rows_avx2};
+pub(crate) use avx2::{
+    available as avx2_available, block_f32_fma, block_f64_fma, fma_available, run_rows_avx2,
+};

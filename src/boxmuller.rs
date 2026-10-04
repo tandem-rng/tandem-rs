@@ -15,25 +15,29 @@
 //! Rust never contracts on its own, so every build does the same arithmetic in the vector
 //! body and in the scalar remainder, and a scalar draw equals the fill bit for bit.
 
-#[cfg(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma")))]
+// Every multiply-add is an explicit fused one, so that every target gives the same bits as
+// tandem-c, which does the same. Without a fused instruction `mul_add` is a correct but slower
+// library call. Without `std` there is no `mul_add`, and the plain form differs in the last
+// bit.
+#[cfg(feature = "std")]
 #[inline(always)]
 fn fma(a: f64, b: f64, c: f64) -> f64 {
     a.mul_add(b, c)
 }
 
-#[cfg(not(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma"))))]
+#[cfg(not(feature = "std"))]
 #[inline(always)]
 fn fma(a: f64, b: f64, c: f64) -> f64 {
     a * b + c
 }
 
-#[cfg(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma")))]
+#[cfg(feature = "std")]
 #[inline(always)]
 fn fmaf(a: f32, b: f32, c: f32) -> f32 {
     a.mul_add(b, c)
 }
 
-#[cfg(not(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma"))))]
+#[cfg(not(feature = "std"))]
 #[inline(always)]
 fn fmaf(a: f32, b: f32, c: f32) -> f32 {
     a * b + c
@@ -113,7 +117,11 @@ fn radius(a: f64) -> f64 {
     let s = (mant - 1.0) / (mant + 1.0);
     let p = horner(s * s, &LN_SERIES);
     // -2 ln(1 - a) = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
-    sqrt(fma(nk, 1.3862943607382476, (s * -4.0) * p) + nk * 3.816429394731813e-10)
+    sqrt(fma(
+        nk,
+        3.816429394731813e-10,
+        fma(nk, 1.3862943607382476, (s * -4.0) * p),
+    ))
 }
 
 /// `(cos, sin)` of `2 pi b` for `b` in `[0, 1)`.
@@ -146,6 +154,15 @@ pub(crate) fn pair_f64(a: f64, b: f64) -> [f64; 2] {
 /// loop as one body.
 #[inline(never)]
 pub(crate) fn block_f64(u: &[f64], z: &mut [f64]) {
+    #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+    if crate::arch::fma_available() {
+        return crate::arch::block_f64_fma(u, z);
+    }
+    block_f64_body(u, z)
+}
+
+#[inline(always)]
+pub(crate) fn block_f64_body(u: &[f64], z: &mut [f64]) {
     unrolled::<f64, 4>(u, z, pair_f64)
 }
 
@@ -185,7 +202,11 @@ pub(crate) fn radius32(a: f32) -> f32 {
         fmaf(zz, fmaf(zz, 0.14275366, 0.20000061), 0.33333334),
         1.0,
     );
-    sqrtf(fmaf(nk, 1.386_291_5, (s * -4.0) * p) + nk * 2.857_213_5e-6)
+    sqrtf(fmaf(
+        nk,
+        2.857_213_5e-6,
+        fmaf(nk, 1.386_291_5, (s * -4.0) * p),
+    ))
 }
 
 /// `(cos, sin)` of `2 pi b` in `f32`.
@@ -227,6 +248,15 @@ pub(crate) fn pair_f32(a: f32, b: f32) -> [f32; 2] {
 /// The `f32` form of [`block_f64`].
 #[inline(never)]
 pub(crate) fn block_f32(u: &[f32], z: &mut [f32]) {
+    #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+    if crate::arch::fma_available() {
+        return crate::arch::block_f32_fma(u, z);
+    }
+    block_f32_body(u, z)
+}
+
+#[inline(always)]
+pub(crate) fn block_f32_body(u: &[f32], z: &mut [f32]) {
     unrolled::<f32, 1>(u, z, pair_f32)
 }
 
