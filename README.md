@@ -26,12 +26,12 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
   length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
   draws and run in `f32`, so ports agree on them to a few ulps, not bit for bit.
-- Normals are Box-Muller on whole blocks of uniforms with the crate's own logarithm (fdlibm's
-  algorithm) and range-free sine and cosine, in plain Rust that the compiler vectorises. The
-  logarithm is within one ulp of the system one over 10^8 random draws. The `std` feature
-  fuses the multiply-adds on aarch64 and FMA targets, so the last bits of a normal differ
-  between targets by an ulp or two. The scalar draws and the fills agree bit for bit on one
-  target.
+- Normals are Box-Muller on whole blocks of uniforms in plain Rust that the compiler
+  vectorises, with tandem-c's arithmetic: an exponent split and a short atanh series for the
+  logarithm, an exact quarter-turn reduction for the sine and cosine. No libm is called. The
+  `std` feature fuses the multiply-adds on aarch64 and FMA targets, so the last bits of a
+  normal differ between targets by an ulp or two. The scalar draws and the fills agree bit
+  for bit on one target.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.

@@ -2,7 +2,7 @@
 //! shared device core (`tandem-cuda`, `core.hpp`) so every port returns the same values.
 
 use crate::Tandem;
-use crate::boxmuller::{PAIRS, pairs_f32, pairs_f64};
+use crate::boxmuller::{block_f32, block_f64, pair_f32, pair_f64};
 
 /// Reserved purposes of the fallback generators of the bounded fills.
 const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
@@ -123,8 +123,7 @@ impl Tandem {
     /// Two standard normals, `[cos, sin]` halves, from two `f64` draws.
     pub fn normal2_f64(&mut self) -> [f64; 2] {
         let (first, second) = (self.next_f64(), self.next_f64());
-        let z = pairs_f64::<2>(&[first, second]);
-        [z[0], z[1]]
+        pair_f64(first, second)
     }
 
     /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws, with the same
@@ -137,8 +136,7 @@ impl Tandem {
     /// Two standard normals, `[cos, sin]` halves, from two `f32` draws.
     pub fn normal2_f32(&mut self) -> [f32; 2] {
         let (first, second) = (self.next_f32(), self.next_f32());
-        let z = pairs_f32::<2>(&[first, second]);
-        [z[0], z[1]]
+        pair_f32(first, second)
     }
 
     /// Fill with standard normals. Pair `j` is elements `2j` and `2j + 1`, cos half first,
@@ -150,7 +148,7 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f64(draws);
-            normals(draws, chunk, pairs_f64::<{ 2 * PAIRS }>);
+            normals(draws, chunk, block_f64, pair_f64);
         }
     }
 
@@ -160,31 +158,22 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
-            normals(draws, chunk, pairs_f32::<{ 2 * PAIRS }>);
+            normals(draws, chunk, block_f32, pair_f32);
         }
     }
 }
 
-/// Convert the uniforms `draws` (twice the pair count) to `out.len()` normals, `N / 2` pairs
-/// at a time. The last group is padded with zeros, which are harmless uniforms.
-fn normals<T: Copy + Default, const N: usize>(
+/// Convert the uniforms `draws` (twice the pair count) to `out.len()` normals. An odd last
+/// element is the cos half of a whole pair.
+fn normals<T: Copy>(
     draws: &[T],
     out: &mut [T],
-    pairs: impl Fn(&[T; N]) -> [T; N],
+    block: fn(&[T], &mut [T]),
+    pair: fn(T, T) -> [T; 2],
 ) {
-    let whole = out.len() / N * N;
-    let (head, rest) = out.split_at_mut(whole);
-    for (d, o) in draws
-        .as_chunks::<N>()
-        .0
-        .iter()
-        .zip(head.as_chunks_mut::<N>().0)
-    {
-        *o = pairs(d);
-    }
-    if !rest.is_empty() {
-        let mut d = [T::default(); N];
-        d[..draws.len() - whole].copy_from_slice(&draws[whole..]);
-        rest.copy_from_slice(&pairs(&d)[..rest.len()]);
+    let even = out.len() / 2 * 2;
+    block(&draws[..even], &mut out[..even]);
+    if even < out.len() {
+        out[even] = pair(draws[even], draws[even + 1])[0];
     }
 }

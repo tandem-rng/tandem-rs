@@ -1,79 +1,20 @@
-//! Box-Muller on whole vectors of pairs, in plain `wide` lane arithmetic.
+//! Box-Muller on whole blocks of pairs, in plain Rust that LLVM vectorises. The shape and the
+//! coefficients are tandem-c's, so the ports compute the same arithmetic.
 //!
-//! The logarithm is fdlibm's: split `x = 2^k m` with `m` in `[sqrt(1/2), sqrt(2))`, write
-//! `s = f / (2 + f)` for `f = m - 1`, and sum a Remez polynomial in `s^2`, which is accurate
-//! to under one ulp. The sine and cosine of `2 pi b` need no range reduction: `4b` splits
-//! exactly into a quadrant and a fraction of a quarter turn, which `sin(pi/2 - x) = cos(x)`
-//! folds into the first octant, where a short Taylor series is exact to rounding.
+//! A pair `(a, b)` gives `r = sqrt(-2 ln(1 - a))` and the normals `r cos(2 pi b)` and
+//! `r sin(2 pi b)`, cos first.
 //!
-//! Every operation is lane-wise and Rust does not contract multiply-adds, so a pair gives the
-//! same bits whichever lane it sits in. The scalar draws rely on that to equal the fills.
+//! `1 - a` is exact and in `(0, 1]`. Its exponent bits split it as `m 2^k` with `m` in
+//! `[sqrt(1/2), sqrt(2))`, and `ln m = 2 s (1 + z/3 + z^2/5 + ...)` for `s = (m - 1) / (m + 1)`
+//! and `z = s^2 <= 0.0295`: a short series that keeps the relative error near the last bit
+//! even for `a` close to 0. The angle `2 pi b` needs no range reduction: `b - q/4` for the
+//! nearest quarter turn `q` is exact, the series for sine and cosine on `[-pi/4, pi/4]` are
+//! short, and a quarter turn is a swap and a sign change on the bits.
+//!
+//! Multiply-adds are fused where the hardware does it in one instruction and plain otherwise.
+//! Rust never contracts on its own, so every build does the same arithmetic in the vector
+//! body and in the scalar remainder, and a scalar draw equals the fill bit for bit.
 
-const fn taylor<const N: usize>(first: usize) -> [f64; N] {
-    // Coefficients (-1)^k / (first + 2k)!, rounded once from the exact fraction.
-    let mut out = [0.0; N];
-    let mut k = 0;
-    while k < N {
-        let mut fact = 1.0;
-        let mut i = 2;
-        while i <= first + 2 * k {
-            fact *= i as f64;
-            i += 1;
-        }
-        out[k] = if k % 2 == 0 { 1.0 / fact } else { -1.0 / fact };
-        k += 1;
-    }
-    out
-}
-
-const fn to_f32<const N: usize>(a: [f64; N]) -> [f32; N] {
-    let mut out = [0.0; N];
-    let mut i = 0;
-    while i < N {
-        out[i] = a[i] as f32;
-        i += 1;
-    }
-    out
-}
-
-// Taylor series on [0, pi/4]: the first omitted term is below 1e-19, and for f32 below 1e-9.
-const SIN: [f64; 8] = taylor(1);
-const COS: [f64; 9] = taylor(0);
-const SIN32: [f32; 5] = to_f32(taylor::<5>(1));
-const COS32: [f32; 6] = to_f32(taylor::<6>(0));
-
-// fdlibm e_log.c, digits as published.
-#[allow(clippy::excessive_precision)]
-const LG: [f64; 7] = [
-    6.666666666666735130e-01,
-    3.999999999940941908e-01,
-    2.857142874366239149e-01,
-    2.222219843214978396e-01,
-    1.818357216161805012e-01,
-    1.531383769920937332e-01,
-    1.479819860511658591e-01,
-];
-#[allow(clippy::excessive_precision)]
-const LN2_HI: f64 = 6.931471803691238165e-01;
-#[allow(clippy::excessive_precision)]
-const LN2_LO: f64 = 1.908214929270587700e-10;
-
-// FreeBSD e_logf.c.
-const LG32: [f32; 4] = [
-    0xaaaaaa as f32 / (1 << 24) as f32,
-    0xccce13 as f32 / (1 << 25) as f32,
-    0x91e9ee as f32 / (1 << 25) as f32,
-    0xf89e26 as f32 / (1 << 26) as f32,
-];
-#[allow(clippy::excessive_precision)]
-const LN2_HI32: f32 = 6.9313812256e-01;
-#[allow(clippy::excessive_precision)]
-const LN2_LO32: f32 = 9.0580006145e-06;
-
-/// `a * b + c`, fused where the hardware does it in one instruction: a Horner step is then
-/// one vector instruction instead of two. Fusing changes the last bit, so results differ
-/// slightly between targets, which the ports' contract allows. Scalar and fill agree within
-/// one build because both take this path.
 #[cfg(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma")))]
 #[inline(always)]
 fn fma(a: f64, b: f64, c: f64) -> f64 {
@@ -86,99 +27,20 @@ fn fma(a: f64, b: f64, c: f64) -> f64 {
     a * b + c
 }
 
-// The loops hold more constants than the vector registers, and the compiler rebuilds each one
-// from immediates every iteration, which costs several instructions apiece. Passed through
-// `black_box` once per call, they are loaded from the stack instead.
-struct Consts64 {
-    sin: [f64; 8],
-    cos: [f64; 9],
-    lg: [f64; 7],
-    ln2_hi: f64,
-    ln2_lo: f64,
-    quarter_turn: f64,
-}
-
-const CONSTS64: Consts64 = Consts64 {
-    sin: SIN,
-    cos: COS,
-    lg: LG,
-    ln2_hi: LN2_HI,
-    ln2_lo: LN2_LO,
-    quarter_turn: core::f64::consts::FRAC_PI_2,
-};
-
-/// The bits of `sqrt(1/2)`: subtracting them turns the exponent field into the exponent of
-/// `x / sqrt(1/2)`, so the mantissa lands in `[sqrt(1/2), sqrt(2))` with integer operations
-/// only.
-const SQRT_HALF_BITS: u64 = 0x3fe6_a09e_667f_3bcd;
-
-/// `ln x` for `x` in `(0, 1]`, normal.
+#[cfg(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma")))]
 #[inline(always)]
-fn ln(x: f64, c: &Consts64) -> f64 {
-    let bits = x.to_bits();
-    let shifted = bits.wrapping_sub(SQRT_HALF_BITS);
-    let k = ((shifted as i64) >> 52) as f64;
-    let z = f64::from_bits(bits.wrapping_sub(shifted & (0xfff << 52)));
-    let f = z - 1.0;
-    let s = f / (2.0 + f);
-    let z = s * s;
-    let w = z * z;
-    let l = &c.lg;
-    let t1 = w * fma(w, fma(w, l[5], l[3]), l[1]);
-    let t2 = z * fma(w, fma(w, fma(w, l[6], l[4]), l[2]), l[0]);
-    let r = t2 + t1;
-    let hfsq = 0.5 * f * f;
-    k * c.ln2_hi - ((hfsq - (s * (hfsq + r) + k * c.ln2_lo)) - f)
+fn fmaf(a: f32, b: f32, c: f32) -> f32 {
+    a.mul_add(b, c)
 }
 
-/// `(sin, cos)` of `2 pi b` for `b` in `[0, 1)`.
-///
-/// `4b` rounds to a quarter turn `q` and a remainder `f` in `[-1/2, 1/2]`, both exact, and
-/// the Taylor series on `x = f pi/2`, `|x| <= pi/4`, is exact to rounding. The quarter turns
-/// then rotate the pair: swap for odd `q`, and a sign flip of the sine for `q mod 4` in
-/// `{2, 3}` and of the cosine for `{1, 2}`, all on the bits.
+#[cfg(not(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma"))))]
 #[inline(always)]
-fn sin_cos_2pi(b: f64, c: &Consts64) -> (f64, f64) {
-    let t = 4.0 * b;
-    let q = (t + 0.5) as u64;
-    let x = (t - q as f64) * c.quarter_turn;
-    let x2 = x * x;
-    let mut s = c.sin[7];
-    let mut co = c.cos[8];
-    co = fma(co, x2, c.cos[7]);
-    for i in (0..7).rev() {
-        s = fma(s, x2, c.sin[i]);
-        co = fma(co, x2, c.cos[i]);
-    }
-    let (s0, c0) = ((x * s).to_bits(), co.to_bits());
-    let swap = 0u64.wrapping_sub(q & 1) & (s0 ^ c0);
-    let (u, v) = (s0 ^ swap, c0 ^ swap);
-    (
-        f64::from_bits(u ^ ((q & 2) << 62)),
-        f64::from_bits(v ^ (((q + 1) & 2) << 62)),
-    )
+fn fmaf(a: f32, b: f32, c: f32) -> f32 {
+    a * b + c
 }
 
-/// Pairs per call: enough independent chains to keep the vector units busy through the
-/// latency of the polynomials.
-pub(crate) const PAIRS: usize = 16;
-
-/// Uniforms `[a0, b0, a1, b1, ...]` to normals `[cos0, sin0, cos1, sin1, ...]`.
-#[inline(always)]
-pub(crate) fn pairs_f64<const N: usize>(d: &[f64; N]) -> [f64; N] {
-    let c = &core::hint::black_box(CONSTS64);
-    let mut out = [0.0; N];
-    for j in 0..N / 2 {
-        let r = sqrt(-2.0 * ln(1.0 - d[2 * j], c));
-        let (s, co) = sin_cos_2pi(d[2 * j + 1], c);
-        out[2 * j] = r * co;
-        out[2 * j + 1] = r * s;
-    }
-    out
-}
-
-/// The correctly rounded square root, so every target returns the same bits. Without `std`
-/// the core has no float square root, and `wide` supplies the hardware instruction.
+// The correctly rounded square root, so every target returns the same bits. Without `std` the
+// core has no float square root, and `wide` supplies the hardware instruction.
 #[cfg(feature = "std")]
 #[inline(always)]
 fn sqrt(x: f64) -> f64 {
@@ -193,103 +55,179 @@ fn sqrt(x: f64) -> f64 {
 
 #[cfg(feature = "std")]
 #[inline(always)]
-fn sqrt32(x: f32) -> f32 {
+fn sqrtf(x: f32) -> f32 {
     x.sqrt()
 }
 
 #[cfg(not(feature = "std"))]
 #[inline(always)]
-fn sqrt32(x: f32) -> f32 {
+fn sqrtf(x: f32) -> f32 {
     wide::f32x4::new([x, 0.0, 0.0, 0.0]).sqrt().to_array()[0]
 }
 
-/// `a * b + c` in `f32`, as [`fma`].
-#[cfg(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma")))]
+// Coefficients of the series, highest degree first, each step one fused multiply-add.
+const LN_SERIES: [f64; 7] = [
+    0.08312363319426472,
+    0.09070001083303751,
+    0.11111433317907482,
+    0.14285712049336274,
+    0.2000000000566491,
+    0.33333333333331017,
+    1.0,
+];
+const SIN_SERIES: [f64; 6] = [
+    1.5914650986900946e-10,
+    -2.5051097984389413e-08,
+    2.755731600073921e-06,
+    -0.00019841269836630226,
+    0.008333333333330813,
+    -0.16666666666666669,
+];
+const COS_SERIES: [f64; 6] = [
+    2.0665708703855164e-09,
+    -2.7555858522576447e-07,
+    2.480158263811954e-05,
+    -0.0013888888882156126,
+    0.04166666666663108,
+    -0.4999999999999997,
+];
+
+/// `c[0] x^n + ... + c[n]` by Horner's rule, each step one fused multiply-add.
 #[inline(always)]
-fn fma32(a: f32, b: f32, c: f32) -> f32 {
-    a.mul_add(b, c)
-}
-
-#[cfg(not(all(feature = "std", any(target_arch = "aarch64", target_feature = "fma"))))]
-#[inline(always)]
-fn fma32(a: f32, b: f32, c: f32) -> f32 {
-    a * b + c
-}
-
-struct Consts32 {
-    sin: [f32; 5],
-    cos: [f32; 6],
-    lg: [f32; 4],
-    ln2_hi: f32,
-    ln2_lo: f32,
-    quarter_turn: f32,
-}
-
-const CONSTS32: Consts32 = Consts32 {
-    sin: SIN32,
-    cos: COS32,
-    lg: LG32,
-    ln2_hi: LN2_HI32,
-    ln2_lo: LN2_LO32,
-    quarter_turn: core::f32::consts::FRAC_PI_2,
-};
-
-const SQRT_HALF_BITS32: u32 = 0x3f35_04f3;
-
-/// `ln x` for `x` in `(0, 1]`, in `f32`.
-#[inline(always)]
-fn ln32(x: f32, c: &Consts32) -> f32 {
-    let bits = x.to_bits();
-    let shifted = bits.wrapping_sub(SQRT_HALF_BITS32);
-    let k = ((shifted as i32) >> 23) as f32;
-    let z = f32::from_bits(bits.wrapping_sub(shifted & (0x1ff << 23)));
-    let f = z - 1.0;
-    let s = f / (2.0 + f);
-    let z = s * s;
-    let w = z * z;
-    let l = &c.lg;
-    let t1 = w * fma32(w, l[3], l[1]);
-    let t2 = z * fma32(w, l[2], l[0]);
-    let r = t2 + t1;
-    let hfsq = 0.5 * f * f;
-    k * c.ln2_hi - ((hfsq - (s * (hfsq + r) + k * c.ln2_lo)) - f)
-}
-
-/// `(sin, cos)` of `2 pi b` in `f32`, as [`sin_cos_2pi`].
-#[inline(always)]
-fn sin_cos_2pi32(b: f32, c: &Consts32) -> (f32, f32) {
-    let t = 4.0 * b;
-    let q = (t + 0.5) as u32;
-    let x = (t - q as f32) * c.quarter_turn;
-    let x2 = x * x;
-    let mut s = c.sin[4];
-    let mut co = c.cos[5];
-    co = fma32(co, x2, c.cos[4]);
-    for i in (0..4).rev() {
-        s = fma32(s, x2, c.sin[i]);
-        co = fma32(co, x2, c.cos[i]);
+fn horner<const C: usize>(x: f64, c: &[f64; C]) -> f64 {
+    let mut acc = c[0];
+    for &k in &c[1..] {
+        acc = fma(x, acc, k);
     }
-    let (s0, c0) = ((x * s).to_bits(), co.to_bits());
-    let swap = 0u32.wrapping_sub(q & 1) & (s0 ^ c0);
-    let (u, v) = (s0 ^ swap, c0 ^ swap);
-    (
-        f32::from_bits(u ^ ((q & 2) << 30)),
-        f32::from_bits(v ^ (((q + 1) & 2) << 30)),
-    )
+    acc
 }
 
-/// The `f32` form of [`pairs_f64`].
+/// `sqrt(-2 ln(1 - a))` for `a` in `[0, 1)`.
 #[inline(always)]
-pub(crate) fn pairs_f32<const N: usize>(d: &[f32; N]) -> [f32; N] {
-    let c = &core::hint::black_box(CONSTS32);
-    let mut out = [0.0; N];
-    for j in 0..N / 2 {
-        let r = sqrt32(-2.0 * ln32(1.0 - d[2 * j], c));
-        let (s, co) = sin_cos_2pi32(d[2 * j + 1], c);
-        out[2 * j] = r * co;
-        out[2 * j + 1] = r * s;
+fn radius(a: f64) -> f64 {
+    // Adding the bits of `sqrt(1/2)` to the exponent field makes the mantissa roll over into
+    // it exactly when the mantissa is at least `sqrt(1/2)`, which picks `k`.
+    let ix = (1.0 - a).to_bits().wrapping_add(0x0009_5f62_0000_0000);
+    let nk = (1023 - (ix >> 52) as i64) as f64; // -k
+    let mant = f64::from_bits((ix & 0x000f_ffff_ffff_ffff) + 0x3fe6_a09e_0000_0000);
+    let s = (mant - 1.0) / (mant + 1.0);
+    let p = horner(s * s, &LN_SERIES);
+    // -2 ln(1 - a) = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
+    sqrt(fma(nk, 1.3862943607382476, (s * -4.0) * p) + nk * 3.816429394731813e-10)
+}
+
+/// `(cos, sin)` of `2 pi b` for `b` in `[0, 1)`.
+#[inline(always)]
+fn rotation(b: f64) -> (f64, f64) {
+    let q = (b * 4.0 + 0.5) as i64;
+    let th = fma(-(q as f64), 0.25, b) * core::f64::consts::TAU;
+    let w = th * th;
+    let sn = th * fma(w, horner(w, &SIN_SERIES), 1.0);
+    let cs = fma(w, horner(w, &COS_SERIES), 1.0);
+    // Odd q swaps the two, bit 1 of q negates the sine, and bit 1 of q + 1 negates the cosine.
+    let qu = q as u64;
+    let sm = 0u64.wrapping_sub(qu & 1);
+    let (sb, cb) = (sn.to_bits(), cs.to_bits());
+    let xb = ((sb & sm) | (cb & !sm)) ^ ((qu.wrapping_add(1) << 62) & (1 << 63));
+    let yb = ((cb & sm) | (sb & !sm)) ^ ((qu << 62) & (1 << 63));
+    (f64::from_bits(xb), f64::from_bits(yb))
+}
+
+/// One pair of uniforms to `[cos, sin]` normals.
+#[inline(always)]
+pub(crate) fn pair_f64(a: f64, b: f64) -> [f64; 2] {
+    let r = radius(a);
+    let (c, s) = rotation(b);
+    [r * c, r * s]
+}
+
+/// Uniforms `[a0, b0, a1, b1, ...]` to normals `[cos0, sin0, cos1, sin1, ...]`. Out of line,
+/// with a trip count the compiler does not know, so that it vectorises and interleaves the
+/// loop as one body.
+#[inline(never)]
+pub(crate) fn block_f64(u: &[f64], z: &mut [f64]) {
+    unrolled::<f64, 4>(u, z, pair_f64)
+}
+
+/// The pair loop unrolled by `U` pairs. The body is then several independent chains, which the
+/// vectoriser keeps in flight together so that it loads each constant once for all of them.
+// `2 * U` is not a usable const argument of `as_chunks` on stable.
+#[allow(clippy::chunks_exact_to_as_chunks)]
+#[inline(always)]
+fn unrolled<T: Copy, const U: usize>(u: &[T], z: &mut [T], pair: fn(T, T) -> [T; 2]) {
+    let m = u.len() / 2;
+    let (u, z) = (&u[..2 * m], &mut z[..2 * m]);
+    let whole = 2 * U * (m / U);
+    let (u_whole, u_rest) = u.split_at(whole);
+    let (z_whole, z_rest) = z.split_at_mut(whole);
+    for (u, z) in u_whole
+        .chunks_exact(2 * U)
+        .zip(z_whole.chunks_exact_mut(2 * U))
+    {
+        let pairs: [[T; 2]; U] = core::array::from_fn(|i| pair(u[2 * i], u[2 * i + 1]));
+        z.copy_from_slice(pairs.as_flattened());
     }
-    out
+    for (u, z) in u_rest.chunks_exact(2).zip(z_rest.chunks_exact_mut(2)) {
+        z.copy_from_slice(&pair(u[0], u[1]));
+    }
+}
+
+/// `sqrt(-2 ln(1 - a))` in `f32`.
+#[inline(always)]
+pub(crate) fn radius32(a: f32) -> f32 {
+    let ix = (1.0 - a).to_bits().wrapping_add(0x004a_fb0d);
+    let nk = (127 - (ix >> 23) as i32) as f32;
+    let mant = f32::from_bits((ix & 0x007f_ffff) + 0x3f35_04f3);
+    let s = (mant - 1.0) / (mant + 1.0);
+    let zz = s * s;
+    let p = fmaf(
+        zz,
+        fmaf(zz, fmaf(zz, 0.14275366, 0.20000061), 0.33333334),
+        1.0,
+    );
+    sqrtf(fmaf(nk, 1.386_291_5, (s * -4.0) * p) + nk * 2.857_213_5e-6)
+}
+
+/// `(cos, sin)` of `2 pi b` in `f32`.
+#[inline(always)]
+pub(crate) fn rotation32(b: f32) -> (f32, f32) {
+    let q = (b * 4.0 + 0.5) as i32;
+    let f = fmaf(-(q as f32), 0.25, b);
+    // 2 pi as a float pair, so that the angle is good to the last bit of the float.
+    let th = fmaf(f, -1.7484555e-7, f * 6.2831855);
+    let w = th * th;
+    let hs = fmaf(
+        w,
+        fmaf(w, fmaf(w, 2.72499e-06, -0.00019840087), 0.008333332),
+        -0.16666667,
+    );
+    let hc = fmaf(
+        w,
+        fmaf(w, fmaf(w, 2.4463761e-05, -0.0013887589), 0.04166665),
+        -0.5,
+    );
+    let sn = th * fmaf(w, hs, 1.0);
+    let cs = fmaf(w, hc, 1.0);
+    let qu = q as u32;
+    let sm = 0u32.wrapping_sub(qu & 1);
+    let (sb, cb) = (sn.to_bits(), cs.to_bits());
+    let xb = ((sb & sm) | (cb & !sm)) ^ ((qu.wrapping_add(1) << 30) & (1 << 31));
+    let yb = ((cb & sm) | (sb & !sm)) ^ ((qu << 30) & (1 << 31));
+    (f32::from_bits(xb), f32::from_bits(yb))
+}
+
+/// One pair of `f32` uniforms to `[cos, sin]` normals.
+#[inline(always)]
+pub(crate) fn pair_f32(a: f32, b: f32) -> [f32; 2] {
+    let r = radius32(a);
+    let (c, s) = rotation32(b);
+    [r * c, r * s]
+}
+
+/// The `f32` form of [`block_f64`].
+#[inline(never)]
+pub(crate) fn block_f32(u: &[f32], z: &mut [f32]) {
+    unrolled::<f32, 1>(u, z, pair_f32)
 }
 
 #[cfg(test)]
@@ -301,43 +239,45 @@ mod tests {
     const SAMPLES: usize = 1_000_000;
 
     #[test]
-    fn ln_is_within_two_ulps() {
-        let c = &CONSTS64;
+    fn radius_is_within_a_few_ulps() {
         let mut rng = Tandem::new(11);
         let mut worst: f64 = 0.0;
         for _ in 0..SAMPLES {
-            let x = 1.0 - rng.next_f64();
-            let rel = ((ln(x, c) - x.ln()) / x.ln()).abs();
-            worst = worst.max(rel);
+            let a = rng.next_f64();
+            let want = (-2.0 * (1.0 - a).ln()).sqrt();
+            worst = worst.max(((radius(a) - want) / want).abs());
         }
-        // Uniforms just below 1 make `ln` cancel: the relative error must hold there too.
+        // Uniforms near 0 and just below 1 are the hard ends: `ln` cancels at one and the
+        // exponent is large at the other.
         for j in 1..=2000 {
-            let x = 1.0 - j as f64 * (1.0 / (1u64 << 53) as f64);
-            worst = worst.max(((ln(x, c) - x.ln()) / x.ln()).abs());
+            let a = j as f64 * (1.0 / (1u64 << 53) as f64);
+            let want = (-2.0 * (1.0 - a).ln()).sqrt();
+            worst = worst.max(((radius(a) - want) / want).abs());
+            let a = 1.0 - a;
+            let want = (-2.0 * (1.0 - a).ln()).sqrt();
+            worst = worst.max(((radius(a) - want) / want).abs());
         }
-        assert!(worst < 4.5e-16, "relative error {worst}");
-        let c = &CONSTS32;
+        assert!(worst < 1e-15, "relative error {worst}");
         let mut worst: f64 = 0.0;
         for _ in 0..SAMPLES {
-            let x = 1.0 - rng.next_f32();
-            let rel = f64::from((ln32(x, c) - x.ln()) / x.ln()).abs();
-            worst = worst.max(rel);
+            let a = rng.next_f32();
+            let want = (-2.0 * (1.0 - f64::from(a)).ln()).sqrt();
+            worst = worst.max(((f64::from(radius32(a)) - want) / want).abs());
         }
         assert!(worst < 4e-7, "f32 relative error {worst}");
     }
 
     #[test]
-    fn sin_cos_are_within_two_ulps() {
-        let c = &CONSTS64;
+    fn rotation_is_within_a_few_ulps() {
         let mut rng = Tandem::new(12);
         let mut worst: f64 = 0.0;
         for _ in 0..SAMPLES {
             let b = rng.next_f64();
-            let (s, co) = sin_cos_2pi(b, c);
+            let (c, s) = rotation(b);
             // The rounded angle of the oracle is off by up to 7e-16.
             let (es, ec) = (core::f64::consts::TAU * b).sin_cos();
-            worst = worst.max((s - es).abs()).max((co - ec).abs());
-            assert!((s * s + co * co - 1.0).abs() < 6e-16);
+            worst = worst.max((s - es).abs()).max((c - ec).abs());
+            assert!((s * s + c * c - 1.0).abs() < 1.5e-15);
         }
         assert!(worst < 1e-15, "absolute error {worst}");
     }
