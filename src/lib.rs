@@ -23,6 +23,9 @@
 //!
 //! The `wgpu` feature adds [`gpu::GpuFill`], the same fill run as a compute shader.
 //!
+//! The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32` and `par_fill_f64`:
+//! the same fills, split at row boundaries across threads.
+//!
 //! [`Tandem::below_u32`], [`Tandem::normal_f64`] and their fills are not part of the
 //! specification. They follow the shared device core so every port agrees.
 //!
@@ -47,6 +50,8 @@ mod arch;
 mod derived;
 #[cfg(feature = "wgpu")]
 pub mod gpu;
+#[cfg(feature = "rayon")]
+mod parallel;
 mod rand;
 #[cfg(feature = "serde")]
 mod transport;

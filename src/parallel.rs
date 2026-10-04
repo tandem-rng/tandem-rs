@@ -1,0 +1,55 @@
+//! Parallel fills. Rows depend only on the key and the position, so whole rows fill
+//! independently and the result is the serial fill.
+
+use rayon::prelude::*;
+
+use crate::{Elem, Tandem};
+
+/// Rows per task: enough work to hide the reseed of a task's first group.
+const TASK_ROWS: usize = 1024;
+
+impl Tandem {
+    fn par_fill<T: Elem + Send>(&mut self, out: &mut [T]) {
+        let w = u64::from(T::BITS);
+        let per_row = (1024 / T::BITS) as usize;
+        let start = crate::align(self.pos, T::BITS);
+
+        // The head up to a row boundary and the tail past the last whole row are short, so
+        // they go through the serial fill, which also moves the position.
+        let head = ((1024 - (start & 1023)) / w) as usize % per_row;
+        let head = head.min(out.len());
+        let (head_out, rest) = out.split_at_mut(head);
+        self.fill(head_out);
+        let rows_len = rest.len() / per_row * per_row;
+        let (rows, tail) = rest.split_at_mut(rows_len);
+
+        let (key, k) = (self.key, self.k);
+        let base = self.pos;
+        rows.par_chunks_mut(TASK_ROWS * per_row)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let mut task = Tandem::from_key(key, base + 1024 * (i * TASK_ROWS) as u64, k);
+                task.fill(chunk);
+            });
+        self.pos = base + w * rows.len() as u64;
+        self.fill(tail);
+    }
+
+    /// [`fill_u32`](Self::fill_u32) across threads. The values and the final position are
+    /// the serial fill's.
+    pub fn par_fill_u32(&mut self, out: &mut [u32]) {
+        self.par_fill(out)
+    }
+    /// [`fill_u64`](Self::fill_u64) across threads.
+    pub fn par_fill_u64(&mut self, out: &mut [u64]) {
+        self.par_fill(out)
+    }
+    /// [`fill_f32`](Self::fill_f32) across threads.
+    pub fn par_fill_f32(&mut self, out: &mut [f32]) {
+        self.par_fill(out)
+    }
+    /// [`fill_f64`](Self::fill_f64) across threads.
+    pub fn par_fill_f64(&mut self, out: &mut [f64]) {
+        self.par_fill(out)
+    }
+}
