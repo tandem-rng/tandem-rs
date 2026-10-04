@@ -38,10 +38,9 @@ which defeats store forwarding and doubles the cost of a scalar draw.
 ## Bounded integers
 
 - Bounded integers (`below_u32`, `below_u64`) and standard normals (`normal_f64`,
-  `normal_f32`, and the pairs `normal2_f64`, `normal2_f32`) with fills. They follow Appendix A
-  of the specification, which is not normative, and the shared device core in `tandem-cuda`,
-  so every port returns the same integers and, with tandem-c's polynomials, the same `f64`
-  normals bit for bit. A bound of 0 returns 0 after one draw.
+  `normal_f32`, and the `f32` pair `normal2_f32`) with fills. They follow Appendix A of the
+  specification, which is not normative, so every port returns the same integers and the same
+  `f64` normals bit for bit. A bound of 0 returns 0 after one draw.
 - `fill_below_*` takes one draw of the plain fill per element and consumes exactly one draw
   per element, so it parallelises. A rejected draw retries on `sub(purpose).split(g)` of
   the key, `g` being the global draw index, so a fill cut anywhere equals the whole. That
@@ -49,19 +48,30 @@ which defeats store forwarding and doubles the cost of a scalar draw.
 
 ## Normals
 
-- A Box-Muller pair uses two uniform draws. `normal_*` returns its cos half and `normal2_*`
-  the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
-  length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
-  draws and run in `f32`. They match tandem-c bit for bit. On the device the `f64` normals
-  match too, and the `f32` normals, which use `__sincosf`, agree to a few ulps.
-- Normals are Box-Muller on whole blocks of uniforms in plain Rust that the compiler
-  vectorises, with tandem-c's arithmetic: an exponent split and a short atanh series for the
-  logarithm, an exact quarter-turn reduction for the sine and cosine. No libm is called. With
-  `std` every multiply-add is a fused `mul_add`, so the normals are bit identical to
-  tandem-c's on every target, and to each other across scalar draws and fills. The x86_64
-  build with `simd-intrinsics` compiles a copy of the loop with `fma` and picks it at run
-  time. Without a fused instruction `mul_add` is a correct but slower library call. Without
-  `std` the plain form differs from tandem-c in the last bits.
+- `f64` normals are the 1024-layer ziggurat of Appendix A, one `u64` draw per element. Element
+  `i` of a fill comes from draw `i` of the `u64` fill. 99.57 % of the draws land in an inner
+  rectangle and cost a table lookup and a multiply. A draw that misses continues on its own
+  fallback generator, `sub(0x4e524d3634).split(g)` of the key at position 0, `g` being the
+  global draw index. So a fill cut anywhere equals the whole and the scalar draws, and the fill
+  never consumes more than `n` draws. An empty fill aligns the position to 64 bits.
+- `src/zig_tables.rs` is generated from the spec's `tables/normal_f64_zig1024.json` by
+  `tools/gen_zig_tables.py`, which checks the file's SHA-256. CI regenerates it and fails on
+  a difference.
+- A fill writes every candidate in one pass over 512 draws and lists the misses. The misses
+  queue across passes and their fallbacks are seeded eight at a time on the row lanes, as
+  tandem-c does. Each fallback then computes one block per two draws instead of a whole row.
+- A Box-Muller pair uses two `f32` draws. `normal_f32` returns its cos half and `normal2_f32`
+  the `[cos, sin]` pair. `fill_normal_f32` fills pairs from draws `2j` and `2j + 1`, so an odd
+  length uses the cos half of its last pair and consumes both draws. `f32` normals run in
+  `f32` on whole blocks of uniforms in plain Rust that the compiler vectorises, with
+  tandem-c's arithmetic: an exponent split and a short atanh series for the logarithm, an
+  exact quarter-turn reduction for the sine and cosine. No libm is called.
+- With `std` every multiply-add of the logarithm and the `f32` normals is a fused `mul_add`,
+  so both kinds of normal are bit identical to tandem-c's on every target, and to each other
+  across scalar draws and fills. The x86_64 build with `simd-intrinsics` compiles a copy of
+  the `f32` loop with `fma` and picks it at run time. Without a fused instruction `mul_add` is
+  a correct but slower library call, which the ziggurat meets only on its rare slow path.
+  Without `std` the plain form differs from tandem-c in the last bits.
 
 ## Exponentials
 
@@ -69,5 +79,5 @@ which defeats store forwarding and doubles the cost of a scalar draw.
   specification. Element `i` of a fill is draw `i`, so a fill cut anywhere equals the whole and
   the scalar draws. `f32` draws run in `f32`. The logarithm is the normals', so with `std` the
   values are bit identical to tandem-c's and `tandem-cuda`'s, and the x86_64 build with
-  `simd-intrinsics` picks the `fma` copy of the loop at run time as for the normals. A length
+  `simd-intrinsics` picks the `fma` copy of the loop at run time as for the `f32` normals. A length
   of 0 leaves the position unchanged.

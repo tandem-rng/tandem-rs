@@ -24,7 +24,7 @@ let mut rng = Tandem::new(42);                 // 128-bit seed, default K
 let mut words = vec![0u32; 1 << 20];
 rng.fill_u32(&mut words);
 let mut worker = rng.split(7);                 // by index, from the key alone
-let z = worker.normal_f64();                   // Box-Muller, bit identical to tandem-c with std
+let z = worker.normal_f64();                   // ziggurat, bit identical to tandem-c with std
 ```
 
 See [API](docs/api.md) for the `rand` traits, features and GPU fill, and

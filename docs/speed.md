@@ -43,7 +43,7 @@ With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 e
 | `fill_f64` | 15.9 | 109 |
 | `fill_below_u32`, n = 1000 | 6.1 | 47 |
 | `fill_below_u64`, n = 1000 | 11.4 | 58 |
-| `fill_normal_f64` | 3.4 | 31 |
+| `fill_normal_f64` | 7.4 | 73 |
 | `fill_normal_f32` | 4.1 | 36 |
 
 The AVX2 column and the SSE2 column come from one session, except that the exponential

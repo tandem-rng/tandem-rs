@@ -10,7 +10,7 @@ let x = rng.next_f64();
 let mut words = vec![0u32; 1 << 20];
 rng.fill_u32(&mut words);
 let i = rng.below_u32(10);                     // uniform in 0..10, Lemire
-let z = rng.normal_f64();                      // Box-Muller from two f64 draws
+let z = rng.normal_f64();                      // ziggurat from one u64 draw
 let e = rng.exponential_f64();                 // -ln(1 - u) from one f64 draw
 let worker = rng.split(7);                     // by index, from the key alone
 let kids: Vec<Tandem> = rng.fork(4).collect(); // from the current block, parent moves on
@@ -33,8 +33,9 @@ let z: f64 = rng.sample(StandardNormal);
 - `split`, `fork`, `sub`, `key`, `position`, `chunk_length`.
 - `below_u32`, `below_u64`, `fill_below_u32`, `fill_below_u64`. A fill cut anywhere equals the
   whole fill.
-- `normal_f64`, `normal_f32`, `normal2_f64`, `normal2_f32`, `fill_normal_f64`,
-  `fill_normal_f32`. With `std` they are bit identical to tandem-c.
+- `normal_f64`, `normal_f32`, `normal2_f32`, `fill_normal_f64`, `fill_normal_f32`. `f64`
+  normals are the ziggurat of Appendix A, `f32` normals Box-Muller pairs. With `std` they are
+  bit identical to tandem-c. An empty `f64` fill aligns the position to 64 bits.
 - `exponential_f64`, `exponential_f32`, `fill_exponential_f64`, `fill_exponential_f32`.
   With `std` they are bit identical to tandem-c and tandem-cuda.
 - `rand_core::TryRng` and `SeedableRng`, so `Tandem` drives every `rand` distribution.

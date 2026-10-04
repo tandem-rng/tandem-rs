@@ -16,13 +16,16 @@ cargo test
 `tests/vectors.rs` checks every vector of the specification.
 `tests/streams.rs` compares long fills, scalar draws and random access against reference
 stream dumps in `tests/data`, complex fills included. `tests/derived.rs` compares bounded
-integers, bounded fills and normals with the cross-check values of `tandem-c`, which it
-generates from the `tandem-cuda` core, and the fills
-with their definitions. With `std` the normals compare bit for bit. Without it they compare
-within the tolerance of Appendix A.
+integers, bounded fills and normals with the cross-check values of `tandem-c`, and the fills
+with their definitions. The `f64` normal rows of `tests/cross_normal.h` start at unaligned
+positions and include a wedge accept, a wedge reject and a tail, for fills and scalar draws.
+With `std` the normals compare bit for bit. Without it they compare within the tolerance of
+Appendix A. It also checks `f64` normal fills cut anywhere, the alignment of an empty fill,
+and the mean and variance of 2^20 normals.
 
-`tests/normal_bits.rs` (with `std`) hashes 1e6 pairs of `f64` and `f32` normals from five
-positions and compares with the hash in tandem-c's `tests/test_normal_bits.c`.
+`tests/normal_bits.rs` (with `std`) compares FNV-1a hashes with tandem-c's
+`tests/test_normal_bits.c`: 1e6 `f64` normals from five positions, 2e5 `f64` normals at two
+positions of the spec's Python reference, and 2e6 - 1 `f32` normals from the five positions.
 
 `tests/derived.rs` also compares the exponential fills and scalar draws with tandem-c's
 `tests/cross_exponential.h`, bit for bit with `std`, at five positions, and checks fills cut
@@ -44,6 +47,9 @@ lengths, positions and lengths, and with the dumps. It skips without an adapter.
 
 `tests/vectors_data/mod.rs` is generated from the spec repository's `vectors.json` by
 `tools/gen_vectors.py`. `tools/gen_derived.py` converts the cross-check values of `tandem-c`.
+`tools/gen_zig_tables.py` writes `src/zig_tables.rs` from the spec's
+`tables/normal_f64_zig1024.json`, and CI checks all three are current.
 `cargo run --release --example dump_normals | shasum -a 256` writes the same bytes as
-tandem-c's `tools/dump_normals.c`. `cargo run --release --example dump_exponentials
+tandem-c's `tools/dump_normals.c`, SHA-256
+`700ec4d2f4d6b82aaa56c6eff18a4e5919585fdbd093988773383d580ea610d1`. `cargo run --release --example dump_exponentials
 | shasum -a 256` writes the same bytes as tandem-c's `tools/dump_exponentials.c`.
