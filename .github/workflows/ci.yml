@@ -84,8 +84,7 @@ jobs:
         with:
           components: rustfmt
       - run: |
-          git clone --depth 1 https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
-          c++ -std=c++17 -I ../tandem-cuda/include tools/gen_derived.cpp -o gen_derived
-          ./gen_derived > tests/derived_data/mod.rs
+          git clone --depth 1 https://github.com/tandem-rng/tandem-c ../tandem-c
+          python3 tools/gen_derived.py ../tandem-c/tests > tests/derived_data/mod.rs
           rustfmt --edition 2024 tests/derived_data/mod.rs
           git diff --exit-code tests/derived_data/mod.rs
