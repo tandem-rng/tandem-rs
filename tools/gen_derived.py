@@ -16,16 +16,17 @@ def read(name):
         return f.read()
 
 
-def bounded(text, array, ty):
-    # Entries are `{n, {values}, end_pos}`.
+def bounded(text, array, ty, start=False):
+    # Entries are `{n, {values}, end_pos}`, or `{start, n, {values}, end_pos}` for fills.
     body = re.search(rf"{array}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
-    out = []
-    for n, vals, end in re.findall(r"\{(\d+)u(?:ll)?,\s*\{([^}]*)\},\s*(\d+)u\}", body):
-        out.append((n, [v.strip().rstrip("ul") for v in vals.split(",")], end))
-    rows = ",\n".join(
-        f"({n}{ty}, &[{', '.join(v + ty for v in vals)}], {end})" for n, vals, end in out
-    )
-    return rows
+    lead = r"(\d+)ull, " if start else ""
+    rows = []
+    for m in re.findall(rf"\{{{lead}(\d+)u(?:ll)?,\s*\{{([^}}]*)\}},\s*(\d+)u\}}", body):
+        *head, n, vals, end = m
+        vals = [v.strip().rstrip("ul") for v in vals.split(",")]
+        head = f"{head[0]}, " if head else ""
+        rows.append(f"({head}{n}{ty}, &[{', '.join(v + ty for v in vals)}], {end})")
+    return ",\n".join(rows)
 
 
 below = read("cross_below.h")
@@ -46,6 +47,6 @@ print("/// `normal2()` pairs, flattened, to 17 digits, and the position after.")
 print(f"pub const NORMAL_F64: (&[f64], u64) = (&[{doubles.strip()}], {end});")
 print("\n/// `normal2f()` pairs, flattened, to 9 digits, and the position after.")
 print(f"pub const NORMAL_F32: (&[f32], u64) = (&[{floats.strip()}], {endf});\n")
-print("/// `fill_below` cases: `(bound, values, position after)`.")
-print(f"pub const FILL_BELOW_U32: &[(u32, &[u32], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U32', 'u32')},\n];\n")
-print(f"pub const FILL_BELOW_U64: &[(u64, &[u64], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U64', 'u64')},\n];")
+print("/// `fill_below` cases: `(start position, bound, values, position after)`.")
+print(f"pub const FILL_BELOW_U32: &[(u64, u32, &[u32], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U32', 'u32', True)},\n];\n")
+print(f"pub const FILL_BELOW_U64: &[(u64, u64, &[u64], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U64', 'u64', True)},\n];")

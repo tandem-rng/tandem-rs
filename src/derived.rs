@@ -41,25 +41,28 @@ impl Tandem {
         (m >> 64) as u64
     }
 
-    /// Fill with uniform integers in `0..n`. Element `i` takes draw `i` of the `u32` fill and
-    /// the fill consumes exactly `out.len()` draws, whatever is rejected, so rows fill
-    /// independently. A rejected draw retries with Lemire's rule on the `u32` draws of the
-    /// generator `from_key(key, 0, K).sub(PURPOSE_BELOW32).split(i)`. A fill without
-    /// rejections equals the scalar [`below_u32`](Self::below_u32) calls.
+    /// Fill with uniform integers in `0..n`. Element `i` takes draw `i` of the `u32` fill,
+    /// which has global draw index `g`, the aligned start position over 32 plus `i`. The fill
+    /// consumes exactly `out.len()` draws, whatever is rejected, so rows fill independently.
+    /// A rejected draw retries with Lemire's rule on the `u32` draws of the generator
+    /// `from_key(key, 0, K).sub(PURPOSE_BELOW32).split(g)`, so a fill cut anywhere equals the
+    /// whole. A fill without rejections equals the scalar [`below_u32`](Self::below_u32) calls.
     pub fn fill_below_u32(&mut self, out: &mut [u32], n: u32) {
+        let first = crate::align(self.pos, 32) / 32;
         self.fill_u32(out);
-        self.bound_u32(out, 0, n);
+        self.bound_u32(out, first, n);
     }
 
     /// Fill with uniform integers in `0..n` from the `u64` fill, as
     /// [`fill_below_u32`](Self::fill_below_u32) does from the `u32` fill, with
     /// `PURPOSE_BELOW64`.
     pub fn fill_below_u64(&mut self, out: &mut [u64], n: u64) {
+        let first = crate::align(self.pos, 64) / 64;
         self.fill_u64(out);
-        self.bound_u64(out, 0, n);
+        self.bound_u64(out, first, n);
     }
 
-    /// Map the raw draws of elements `first..` to bounded values in place.
+    /// Map the raw draws, whose global draw indices start at `first`, to bounded values in place.
     pub(crate) fn bound_u32(&self, raw: &mut [u32], first: u64, n: u32) {
         for (e, x) in (first..).zip(raw) {
             let m = u64::from(*x) * u64::from(n);

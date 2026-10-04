@@ -19,9 +19,10 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   specification. They follow the shared device core in `tandem-cuda`, so every port returns
   the same integers and `f64` normals up to the last bits of `log`, `cos` and `sin`. A bound
   of 0 returns 0 after one draw.
-- `fill_below_*` takes draw `i` of the plain fill for element `i` and consumes exactly one
-  draw per element, so it parallelises. A rejected draw retries on `sub(purpose).split(i)` of
-  the key, as the device core does. That equals the scalar calls whenever nothing is rejected.
+- `fill_below_*` takes one draw of the plain fill per element and consumes exactly one draw
+  per element, so it parallelises. A rejected draw retries on `sub(purpose).split(g)` of
+  the key, `g` being the global draw index, so a fill cut anywhere equals the whole. That
+  equals the scalar calls whenever nothing is rejected.
 - A Box-Muller pair uses two uniform draws. `normal_*` returns its cos half and `normal2_*`
   the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
   length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`

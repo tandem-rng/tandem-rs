@@ -51,19 +51,21 @@ impl Tandem {
     /// [`fill_below_u32`](Self::fill_below_u32) across threads. Element `i` depends on draw `i`
     /// alone, so the fill and the bounding both split freely.
     pub fn par_fill_below_u32(&mut self, out: &mut [u32], n: u32) {
+        let first = crate::align(self.pos, 32) / 32;
         self.par_fill_u32(out);
         let me = &*self;
         out.par_chunks_mut(TASK_ROWS * 32)
             .enumerate()
-            .for_each(|(i, chunk)| me.bound_u32(chunk, (i * TASK_ROWS * 32) as u64, n));
+            .for_each(|(i, chunk)| me.bound_u32(chunk, first + (i * TASK_ROWS * 32) as u64, n));
     }
     /// [`fill_below_u64`](Self::fill_below_u64) across threads.
     pub fn par_fill_below_u64(&mut self, out: &mut [u64], n: u64) {
+        let first = crate::align(self.pos, 64) / 64;
         self.par_fill_u64(out);
         let me = &*self;
         out.par_chunks_mut(TASK_ROWS * 16)
             .enumerate()
-            .for_each(|(i, chunk)| me.bound_u64(chunk, (i * TASK_ROWS * 16) as u64, n));
+            .for_each(|(i, chunk)| me.bound_u64(chunk, first + (i * TASK_ROWS * 16) as u64, n));
     }
     /// [`fill_normal_f64`](Self::fill_normal_f64) across threads. Each task starts at its
     /// pair's draws, so no scratch buffer for the uniforms is needed.

@@ -87,24 +87,26 @@ fn normals_match_the_device_core() {
 
 #[test]
 fn fill_below_matches_the_device_core() {
-    for (n, want, end) in FILL_BELOW_U32 {
-        let mut rng = start();
+    for (at, n, want, end) in FILL_BELOW_U32 {
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
         let mut got = vec![0; want.len()];
         rng.fill_below_u32(&mut got, *n);
         assert_eq!(
             (&got[..], rng.position()),
             (*want, *end),
-            "fill_below_u32({n})"
+            "fill_below_u32({n}) at {at}"
         );
     }
-    for (n, want, end) in FILL_BELOW_U64 {
-        let mut rng = start();
+    for (at, n, want, end) in FILL_BELOW_U64 {
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
         let mut got = vec![0; want.len()];
         rng.fill_below_u64(&mut got, *n);
         assert_eq!(
             (&got[..], rng.position()),
             (*want, *end),
-            "fill_below_u64({n})"
+            "fill_below_u64({n}) at {at}"
         );
     }
 }
@@ -128,8 +130,9 @@ fn normal_f32_is_box_muller_of_two_f32_draws() {
 }
 
 /// The bounded fill from its definition: element `i` takes draw `i` of the raw fill, and a
-/// rejected draw retries on `sub(purpose).split(i)` of the key at position 0.
-fn below_by_definition(rng: &Tandem, raw: &[u64], n: u64, wide: bool) -> Vec<u64> {
+/// rejected draw retries on `sub(purpose).split(g)` of the key at position 0, `g` being the
+/// global draw index.
+fn below_by_definition(rng: &Tandem, raw: &[u64], n: u64, wide: bool, first: u64) -> Vec<u64> {
     let (bits, purpose) = if wide {
         (64, 0x0042_4c57_3634)
     } else {
@@ -150,7 +153,7 @@ fn below_by_definition(rng: &Tandem, raw: &[u64], n: u64, wide: bool) -> Vec<u64
             let mut m = u128::from(u) * u128::from(n);
             let low = |m: u128| m & ((1u128 << bits) - 1);
             if low(m) < reject {
-                let mut r = sub.split(i as u64);
+                let mut r = sub.split(first + i as u64);
                 m = u128::from(draw(&mut r)) * u128::from(n);
                 while low(m) < reject {
                     m = u128::from(draw(&mut r)) * u128::from(n);
@@ -173,7 +176,7 @@ fn bounded_fills_follow_the_definition() {
             let mut words = vec![0; len];
             raw.fill_u32(&mut words);
             let words: Vec<u64> = words.iter().map(|&w| u64::from(w)).collect();
-            let want = below_by_definition(&rng, &words, u64::from(n), false);
+            let want = below_by_definition(&rng, &words, u64::from(n), false, 1);
             assert!(
                 got.iter().map(|&x| u64::from(x)).eq(want),
                 "u32 n={n} len={len}"
@@ -189,7 +192,7 @@ fn bounded_fills_follow_the_definition() {
             raw.fill_u64(&mut words);
             assert_eq!(
                 got,
-                below_by_definition(&rng, &words, n, true),
+                below_by_definition(&rng, &words, n, true, 1),
                 "u64 n={n} len={len}"
             );
             assert_eq!(rng, raw, "u64 consumes exactly len draws");
@@ -272,5 +275,36 @@ fn normal_pairs_are_box_muller_to_an_ulp() {
             "pair {i}: {z:?} against {:?}",
             [r * c, r * s]
         );
+    }
+}
+
+#[test]
+fn bounded_fills_cut_anywhere_equal_the_whole() {
+    // The fallback is keyed by the global draw index, so a fill split at any element and
+    // continued gives the whole fill, rejected elements included. The bounds reject a quarter
+    // of the draws, and the start is unaligned.
+    let (n32, n64) = (0xc000_0000u32, 0xc000_0000_0000_0000u64);
+    for cut in [0, 1, 7, 100, 777, 1000] {
+        let mut whole = start();
+        let mut a = vec![0u32; 1000];
+        whole.fill_below_u32(&mut a, n32);
+        let mut parts = start();
+        let mut b = vec![0u32; 1000];
+        let (head, tail) = b.split_at_mut(cut);
+        parts.fill_below_u32(head, n32);
+        parts.fill_below_u32(tail, n32);
+        assert_eq!(a, b, "u32 cut at {cut}");
+        assert_eq!(whole, parts);
+
+        let mut whole = start();
+        let mut a = vec![0u64; 1000];
+        whole.fill_below_u64(&mut a, n64);
+        let mut parts = start();
+        let mut b = vec![0u64; 1000];
+        let (head, tail) = b.split_at_mut(cut);
+        parts.fill_below_u64(head, n64);
+        parts.fill_below_u64(tail, n64);
+        assert_eq!(a, b, "u64 cut at {cut}");
+        assert_eq!(whole, parts);
     }
 }
