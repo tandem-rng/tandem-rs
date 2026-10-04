@@ -145,6 +145,15 @@ with direct 16-byte stores runs near the card's bandwidth once the buffer is lar
 hide the submit and clock ramp. The A100 host had no system Vulkan loader: a conda-forge
 `libvulkan-loader` on `LD_LIBRARY_PATH` with the driver's own ICD was enough.
 
+## AI assistance
+
+This port was written with the help of large language models under human
+direction. The design and the specification are human work, as is much of the
+Julia implementation. The code is tested bit for bit against every vector of
+the specification and against long stream dumps from the Julia implementation,
+and every value must match. The output does not depend on who or what wrote the
+code.
+
 ## License
 
 Apache License 2.0. See `LICENSE` and `NOTICE`.
