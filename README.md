@@ -3,6 +3,7 @@
 # tandem-rs
 
 [![CI](https://github.com/tandem-rng/tandem-rs/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tandem-rng/tandem-rs/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-tandem--rng.github.io-7fb3ee.svg)](https://tandem-rng.github.io/tandem-rs/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
 Rust implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a noncryptographic
@@ -27,8 +28,8 @@ let z = worker.normal_f64();                   // Box-Muller, bit identical to t
 ```
 
 See [API](docs/api.md) for the `rand` traits, features and GPU fill, and
-[tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
+[design](docs/design.md), [tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
 
 Portions of the code were generated with the assistance of LLMs.
 
-[Documentation](docs/index.md) · [Apache 2.0 license](LICENSE)
+[Documentation](https://tandem-rng.github.io/tandem-rs/) · [Apache 2.0 license](LICENSE)

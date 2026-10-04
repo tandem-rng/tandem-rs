@@ -1,8 +1,13 @@
-# tandem-rs documentation
+# tandem-rs
+
+Rust implementation of Tandem8x32. The crate `tandem-rng` produces the stream of the
+[specification](https://github.com/tandem-rng/spec/blob/main/SPEC.md) bit for bit, with SIMD
+fills on CPUs, `rayon` fills, and a `wgpu` fill on GPUs.
 
 - [API](api.md): the generator, the features, the derived draws and the GPU fill.
+- [Design](design.md): the row loop, the features, and how the derived draws work.
 - [Tests](tests.md): what each test file checks.
-- [Speed](speed.md): CPU, rayon and GPU figures, and the design notes behind them.
+- [Speed](speed.md): CPU, rayon and GPU figures.
 
 ## Install
 
