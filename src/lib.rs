@@ -23,6 +23,9 @@
 //!
 //! The `wgpu` feature adds [`gpu::GpuFill`], the same fill run as a compute shader.
 //!
+//! The `serde` feature serializes a [`Tandem`] as its transport form: key, position and chunk
+//! length.
+//!
 //! The `simd-intrinsics` feature spells the widening multiply and the float row stores with
 //! NEON or SSE2 intrinsics. It admits `unsafe` in one private module and leaves the stream
 //! as it is.
@@ -41,6 +44,8 @@ mod arch;
 #[cfg(feature = "wgpu")]
 pub mod gpu;
 mod rand;
+#[cfg(feature = "serde")]
+mod transport;
 
 use wide::{u32x4, u64x2};
 

@@ -16,6 +16,8 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
+- The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
+  transport form (key, position, `K`). Deserializing rejects an invalid `K`.
 - The `simd-intrinsics` feature spells the widening multiply and the float row stores with
   NEON or SSE2 intrinsics. It admits `unsafe` in one private module, so the crate root
   then says `deny(unsafe_code)` instead of `forbid`. The stream is the same.
@@ -86,6 +88,7 @@ generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, a
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
 against reference stream dumps in `tests/data`, complex fills included.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
+`tests/serde.rs` (with `--features serde`) round-trips a generator through JSON.
 `tests/intrinsics.rs` (with `--features simd-intrinsics`) compares every fill with the
 stream built from the scalar `block`, at offsets and lengths that cut rows and chunks.
 `tests/gpu.rs` (with `--features wgpu`) compares GPU fills with the CPU fills over keys, chunk
