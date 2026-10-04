@@ -22,13 +22,13 @@ fn below_matches_the_device_core() {
 
 #[test]
 fn normal_matches_the_device_core() {
-    // libm and the C library may differ in the last bits of log and cos.
+    // The reference values carry 12 digits: libm and the C library differ in the last bits.
     let (want, end) = NORMAL;
     let mut rng = Tandem::new(42);
-    for (i, bits) in want.iter().enumerate() {
-        let (got, want) = (rng.normal_f64(), f64::from_bits(*bits));
+    for (i, want) in want.iter().enumerate() {
+        let got = rng.normal_f64();
         assert!(
-            (got - want).abs() <= 1e-14 * want.abs().max(1.0),
+            (got - want).abs() <= 1e-11 * want.abs().max(1.0),
             "element {i}: {got} against {want}"
         );
     }

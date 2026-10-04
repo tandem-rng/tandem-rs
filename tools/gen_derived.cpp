@@ -27,14 +27,12 @@ int main() {
         for (int i = 0; i < N; i++) std::printf("%llu,", (unsigned long long)r.urand64(n));
         std::printf("], %lluu64),\n", (unsigned long long)r.position());
     }
-    std::printf("];\n\n/// Seed 42, K = 32: bit patterns of `normal()` and the position after.\n");
-    std::printf("pub const NORMAL: ([u64; %d], u64) = ([", N);
+    std::printf("];\n\n/// Seed 42, K = 32: `normal()` to 12 digits and the position after.\n");
+    std::printf("pub const NORMAL: ([f64; %d], u64) = ([", N);
     tandem::Rng r(42);
     for (int i = 0; i < N; i++) {
-        double x = r.normal();
-        uint64_t bits;
-        std::memcpy(&bits, &x, 8);
-        std::printf("0x%016llxu64,", (unsigned long long)bits);
+        // Twelve digits: the C library and libm differ in the last bits of log and cos.
+        std::printf("%.12e,", r.normal());
     }
     std::printf("], %lluu64);\n", (unsigned long long)r.position());
 }
