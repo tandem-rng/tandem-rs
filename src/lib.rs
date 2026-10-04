@@ -29,6 +29,9 @@
 //! [`Tandem::below_u32`], [`Tandem::normal_f64`] and their fills are not part of the
 //! specification. They follow the shared device core so every port agrees.
 //!
+//! The default `std` feature uses the system libm for the logarithm and square root of the
+//! normals. Without it the crate is `no_std` and uses the `libm` crate.
+//!
 //! The `serde` feature serializes a [`Tandem`] as its transport form: key, position and chunk
 //! length.
 //!
@@ -42,7 +45,7 @@
 #![cfg_attr(feature = "simd-intrinsics", deny(unsafe_code))]
 #![warn(missing_docs)]
 
-#[cfg(feature = "wgpu")]
+#[cfg(feature = "std")]
 extern crate std;
 
 #[cfg(feature = "simd-intrinsics")]

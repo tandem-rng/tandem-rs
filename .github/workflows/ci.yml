@@ -28,6 +28,16 @@ jobs:
       - run: cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
       - run: cargo test --features "${{ matrix.features }}"
       - run: cargo test --release --features "${{ matrix.features }}"
+  no-std:
+    name: no default features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - run: cargo test --no-default-features
   gpu:
     name: ${{ matrix.os }} / wgpu
     runs-on: ${{ matrix.os }}

@@ -3,8 +3,6 @@
 
 use crate::Tandem;
 
-use core::f64::consts::TAU;
-
 /// Reserved purposes of the fallback generators of the bounded fills.
 const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
 const PURPOSE_BELOW64: u64 = 0x0042_4c57_3634;
@@ -176,17 +174,89 @@ impl Tandem {
     }
 }
 
-#[inline]
-fn box_muller2(first: f64, second: f64) -> [f64; 2] {
-    let r = libm::sqrt(-2.0 * libm::log(1.0 - first));
-    [r * libm::cos(TAU * second), r * libm::sin(TAU * second)]
+// The logarithm and square root come from the system libm with `std`, which is several times
+// faster than the portable `libm` crate, and from that crate without. Both are accurate to an
+// ulp or so, and the ports agree on normals to that, not bit for bit.
+#[cfg(feature = "std")]
+mod math {
+    pub fn sqrt(x: f64) -> f64 {
+        x.sqrt()
+    }
+    pub fn ln(x: f64) -> f64 {
+        x.ln()
+    }
+    pub fn sqrtf(x: f32) -> f32 {
+        x.sqrt()
+    }
+    pub fn lnf(x: f32) -> f32 {
+        x.ln()
+    }
 }
 
-#[inline]
+#[cfg(not(feature = "std"))]
+mod math {
+    pub use libm::{sqrt, sqrtf};
+    pub fn ln(x: f64) -> f64 {
+        libm::log(x)
+    }
+    pub fn lnf(x: f32) -> f32 {
+        libm::logf(x)
+    }
+}
+
+const fn taylor<const N: usize>(first: usize) -> [f64; N] {
+    // Coefficients (-1)^k / (first + 2k)!, rounded once from the exact fraction.
+    let mut out = [0.0; N];
+    let mut k = 0;
+    while k < N {
+        let mut fact = 1.0;
+        let mut i = 2;
+        while i <= first + 2 * k {
+            fact *= i as f64;
+            i += 1;
+        }
+        out[k] = if k % 2 == 0 { 1.0 / fact } else { -1.0 / fact };
+        k += 1;
+    }
+    out
+}
+
+// Taylor series on [0, pi/4]: the first omitted term is below 1e-19.
+const SIN: [f64; 9] = taylor(1);
+const COS: [f64; 9] = taylor(0);
+
+/// `(sin, cos)` of `2 pi b` for `b` in `[0, 1)`. The angle needs no range reduction: `4b`
+/// splits exactly into a quadrant and a fraction of a quarter turn, which the identity
+/// `sin(pi/2 - x) = cos(x)` folds into the first octant. A float `2 pi b` would be off by up
+/// to `2 pi b 2^-53`, so this is also the more accurate way.
+#[inline(always)]
+fn sin_cos_2pi(b: f64) -> (f64, f64) {
+    let t = 4.0 * b;
+    let q = t as u32;
+    let f = t - f64::from(q);
+    let flip = f > 0.5;
+    let x = if flip { 1.0 - f } else { f } * core::f64::consts::FRAC_PI_2;
+    let x2 = x * x;
+    let horner = |c: &[f64; 9]| c.iter().rev().fold(0.0, |acc, &k| acc * x2 + k);
+    let (s, c) = (x * horner(&SIN), horner(&COS));
+    let (s, c) = if flip { (c, s) } else { (s, c) };
+    match q & 3 {
+        0 => (s, c),
+        1 => (c, -s),
+        2 => (-s, -c),
+        _ => (-c, s),
+    }
+}
+
+fn box_muller2(first: f64, second: f64) -> [f64; 2] {
+    let r = math::sqrt(-2.0 * math::ln(1.0 - first));
+    let (s, c) = sin_cos_2pi(second);
+    [r * c, r * s]
+}
+
 fn box_muller2_f32(first: f32, second: f32) -> [f32; 2] {
-    let r = libm::sqrtf(-2.0 * libm::logf(1.0 - first));
-    // A float angle is off by up to 2 pi b 2^-24, so take it in f64 and round the results,
-    // as the device core does on a host.
-    let angle = TAU * f64::from(second);
-    [r * libm::cos(angle) as f32, r * libm::sin(angle) as f32]
+    let r = math::sqrtf(-2.0 * math::lnf(1.0 - first));
+    // The angle goes through f64, as the device core does on a host.
+    let (s, c) = sin_cos_2pi(f64::from(second));
+    [r * c as f32, r * s as f32]
 }

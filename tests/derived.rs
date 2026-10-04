@@ -255,3 +255,22 @@ fn normals_have_unit_moments() {
         );
     }
 }
+
+#[test]
+fn normal_pairs_are_box_muller_to_an_ulp() {
+    // The oracle is the formula through the system sin and cos on the same draws.
+    let (mut a, mut b) = (Tandem::new(5), Tandem::new(5));
+    for i in 0..200_000 {
+        let z = a.normal2_f64();
+        let (u, v) = (b.next_f64(), b.next_f64());
+        let r = (-2.0 * (1.0 - u).ln()).sqrt();
+        let (s, c) = (std::f64::consts::TAU * v).sin_cos();
+        // The oracle's rounded angle 2 pi v is off by up to 2^-53 * 2 pi v, about 7e-16.
+        let tol = 1.5e-15 * r.max(1.0);
+        assert!(
+            (z[0] - r * c).abs() <= tol && (z[1] - r * s).abs() <= tol,
+            "pair {i}: {z:?} against {:?}",
+            [r * c, r * s]
+        );
+    }
+}

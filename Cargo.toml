@@ -31,15 +31,19 @@ codegen-units = 1
 serde_json = "1"
 
 [features]
+default = ["std"]
+# The system libm for normals, several times faster than the `libm` crate. Without it the
+# crate is `no_std`.
+std = []
 # Parallel fills over rows. Pulls in std.
-rayon = ["dep:rayon"]
+rayon = ["dep:rayon", "std"]
 # Serialize and Deserialize for `Tandem` through its transport form.
 serde = ["dep:serde"]
 # NEON and SSE2 intrinsics for the widening multiply and the float row stores. Admits
 # `unsafe` in one module. The stream is the same.
 simd-intrinsics = []
 # GPU fills through wgpu. Pulls in std.
-wgpu = ["dep:wgpu", "dep:pollster"]
+wgpu = ["dep:wgpu", "dep:pollster", "std"]
 
 [package.metadata.docs.rs]
 all-features = true
