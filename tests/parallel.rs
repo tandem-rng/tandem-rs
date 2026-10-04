@@ -39,3 +39,21 @@ agrees!(u32_k1, u32, fill_u32, par_fill_u32, 1);
 agrees!(u64_k32, u64, fill_u64, par_fill_u64, 32);
 agrees!(f32_k8, f32, fill_f32, par_fill_f32, 8);
 agrees!(f64_k32, f64, fill_f64, par_fill_f64, 32);
+
+#[test]
+fn below_fills() {
+    for (pos, len) in CASES {
+        let mut serial = Tandem::from_key([1, 2, 3, 4], pos, 32);
+        let mut par = serial;
+        let (mut want, mut got) = (vec![0u32; len], vec![0u32; len]);
+        serial.fill_below_u32(&mut want, 0xc000_0000);
+        par.par_fill_below_u32(&mut got, 0xc000_0000);
+        assert!(got == want, "u32 at position {pos}, length {len}");
+        assert_eq!(par, serial);
+        let (mut want, mut got) = (vec![0u64; len], vec![0u64; len]);
+        serial.fill_below_u64(&mut want, 0xc000_0000_0000_0000);
+        par.par_fill_below_u64(&mut got, 0xc000_0000_0000_0000);
+        assert!(got == want, "u64 at position {pos}, length {len}");
+        assert_eq!(par, serial);
+    }
+}

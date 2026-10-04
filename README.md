@@ -17,13 +17,17 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - Bounded integers (`below_u32`, `below_u64`) and standard normals (`normal_f64`,
   `normal_f32`) with fills. They are not in the specification. They follow the shared device
   core in `tandem-cuda`, so every port returns the same integers and `f64` normals up to the
-  last bits of `log` and `cos`. A bound of 0 returns 0 after one draw. An `f64` normal uses two
+  last bits of `log` and `cos`. A bound of 0 returns 0 after one draw. `fill_below_*` takes
+  draw `i` of the plain fill for element `i` and consumes exactly one draw per element, so it
+  parallelises. A rejected draw retries on `sub(purpose).split(i)` of the key, as the device
+  core does. That equals the scalar calls whenever nothing is rejected. An `f64` normal uses two
   `f64` draws. An `f32` normal uses two `f32` draws and runs Box-Muller in `f32`, so ports
   agree on it to a few ulps, not bit for bit.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
-- The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32` and `par_fill_f64`.
+- The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32`, `par_fill_f64`, `par_fill_below_u32` and
+  `par_fill_below_u64`.
   They split the output at row boundaries, fill the parts on separate threads and move the
   position once, so they equal the serial fills. The feature pulls in `std`.
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
@@ -101,7 +105,8 @@ when it is out of date. `tests/streams.rs` compares long fills, scalar draws and
 against reference stream dumps in `tests/data`, complex fills included.
 `tests/derived.rs` compares bounded integers and `f64` normals with the cross-check values of
 `tandem-c`, which it generates from the `tandem-cuda` core (`tools/gen_derived.py` converts
-them), and the fills with scalar draws.
+them), and the fills with their definitions. The bounded fills were also compared once with
+`below_u32` and `below_u64` from `core.hpp`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.

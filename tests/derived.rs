@@ -73,22 +73,90 @@ fn normal_f32_is_box_muller_of_two_f32_draws() {
     assert_eq!(a, b);
 }
 
+/// The bounded fill from its definition: element `i` takes draw `i` of the raw fill, and a
+/// rejected draw retries on `sub(purpose).split(i)` of the key at position 0.
+fn below_by_definition(rng: &Tandem, raw: &[u64], n: u64, wide: bool) -> Vec<u64> {
+    let (bits, purpose) = if wide {
+        (64, 0x0042_4c57_3634)
+    } else {
+        (32, 0x0042_4c57_3332)
+    };
+    let sub = Tandem::from_key(rng.key(), 0, rng.chunk_length()).sub(purpose);
+    let draw = |r: &mut Tandem| {
+        if wide {
+            r.next_u64()
+        } else {
+            u64::from(r.next_u32())
+        }
+    };
+    let reject = (1u128 << bits) % u128::from(n.max(1));
+    raw.iter()
+        .enumerate()
+        .map(|(i, &u)| {
+            let mut m = u128::from(u) * u128::from(n);
+            let low = |m: u128| m & ((1u128 << bits) - 1);
+            if low(m) < reject {
+                let mut r = sub.split(i as u64);
+                m = u128::from(draw(&mut r)) * u128::from(n);
+                while low(m) < reject {
+                    m = u128::from(draw(&mut r)) * u128::from(n);
+                }
+            }
+            (m >> bits) as u64
+        })
+        .collect()
+}
+
 #[test]
-fn fills_are_scalar_draws() {
+fn bounded_fills_follow_the_definition() {
+    // Bounds near 2^32 and 2^64 reject a quarter of the draws, so the retry runs.
+    for len in [0, 1, 31, 32, 33, 1000, 5000] {
+        for n in [0, 1, 3, 1000, 0xc000_0000u32] {
+            let mut rng = start();
+            let mut raw = start();
+            let mut got = vec![0; len];
+            rng.fill_below_u32(&mut got, n);
+            let mut words = vec![0; len];
+            raw.fill_u32(&mut words);
+            let words: Vec<u64> = words.iter().map(|&w| u64::from(w)).collect();
+            let want = below_by_definition(&rng, &words, u64::from(n), false);
+            assert!(
+                got.iter().map(|&x| u64::from(x)).eq(want),
+                "u32 n={n} len={len}"
+            );
+            assert_eq!(rng, raw, "u32 consumes exactly len draws");
+        }
+        for n in [0, 1, 3, 1_000_000_000_000, 0xc000_0000_0000_0000u64] {
+            let mut rng = start();
+            let mut raw = start();
+            let mut got = vec![0; len];
+            rng.fill_below_u64(&mut got, n);
+            let mut words = vec![0; len];
+            raw.fill_u64(&mut words);
+            assert_eq!(
+                got,
+                below_by_definition(&rng, &words, n, true),
+                "u64 n={n} len={len}"
+            );
+            assert_eq!(rng, raw, "u64 consumes exactly len draws");
+        }
+    }
+}
+
+#[test]
+fn bounded_fill_without_rejection_is_the_scalar_draws() {
+    // A power of two never rejects.
+    let (mut a, mut b) = (start(), start());
+    let mut got = vec![0; 777];
+    a.fill_below_u32(&mut got, 1 << 20);
+    assert!(got.iter().all(|&x| x == b.below_u32(1 << 20)));
+    assert_eq!(a, b);
+}
+
+#[test]
+fn normal_fills_are_scalar_draws() {
     // Lengths cross the block of the normal fill and a row.
     for len in [0, 1, 127, 128, 129, 300, 1000] {
-        let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
-        let mut got = vec![0; len];
-        a.fill_below_u32(&mut got, 0xc000_0000);
-        assert!(got.iter().all(|&x| x == b.below_u32(0xc000_0000)));
-        assert_eq!(a, b, "below_u32 position at {len}");
-
-        let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
-        let mut got = vec![0; len];
-        a.fill_below_u64(&mut got, 1000);
-        assert!(got.iter().all(|&x| x == b.below_u64(1000)));
-        assert_eq!(a, b, "below_u64 position at {len}");
-
         let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
         let mut got = vec![0.0; len];
         a.fill_normal_f64(&mut got);

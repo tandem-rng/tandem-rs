@@ -5,6 +5,10 @@ use crate::Tandem;
 
 use core::f64::consts::TAU;
 
+/// Reserved purposes of the fallback generators of the bounded fills.
+const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
+const PURPOSE_BELOW64: u64 = 0x0042_4c57_3634;
+
 /// Draws per block of a normal fill: a multiple of the 128 `f64` a row holds, so the bulk
 /// fill keeps whole rows.
 const BLOCK: usize = 256;
@@ -38,18 +42,75 @@ impl Tandem {
         (m >> 64) as u64
     }
 
-    /// Fill with the values of `out.len()` calls to [`below_u32`](Self::below_u32). Rejection
-    /// makes the draw count data dependent, so this is a loop of scalar draws.
+    /// Fill with uniform integers in `0..n`. Element `i` takes draw `i` of the `u32` fill and
+    /// the fill consumes exactly `out.len()` draws, whatever is rejected, so rows fill
+    /// independently. A rejected draw retries with Lemire's rule on the `u32` draws of the
+    /// generator `from_key(key, 0, K).sub(PURPOSE_BELOW32).split(i)`. A fill without
+    /// rejections equals the scalar [`below_u32`](Self::below_u32) calls.
     pub fn fill_below_u32(&mut self, out: &mut [u32], n: u32) {
-        for x in out {
-            *x = self.below_u32(n);
+        self.fill_u32(out);
+        self.bound_u32(out, 0, n);
+    }
+
+    /// Fill with uniform integers in `0..n` from the `u64` fill, as
+    /// [`fill_below_u32`](Self::fill_below_u32) does from the `u32` fill, with
+    /// `PURPOSE_BELOW64`.
+    pub fn fill_below_u64(&mut self, out: &mut [u64], n: u64) {
+        self.fill_u64(out);
+        self.bound_u64(out, 0, n);
+    }
+
+    /// Map the raw draws of elements `first..` to bounded values in place.
+    pub(crate) fn bound_u32(&self, raw: &mut [u32], first: u64, n: u32) {
+        for (e, x) in (first..).zip(raw) {
+            let m = u64::from(*x) * u64::from(n);
+            *x = if (m as u32) < n && (m as u32) < n.wrapping_neg() % n {
+                self.retry_u32(n, e)
+            } else {
+                (m >> 32) as u32
+            };
         }
     }
 
-    /// Fill with the values of `out.len()` calls to [`below_u64`](Self::below_u64).
-    pub fn fill_below_u64(&mut self, out: &mut [u64], n: u64) {
-        for x in out {
-            *x = self.below_u64(n);
+    pub(crate) fn bound_u64(&self, raw: &mut [u64], first: u64, n: u64) {
+        for (e, x) in (first..).zip(raw) {
+            let m = u128::from(*x) * u128::from(n);
+            *x = if (m as u64) < n && (m as u64) < n.wrapping_neg() % n {
+                self.retry_u64(n, e)
+            } else {
+                (m >> 64) as u64
+            };
+        }
+    }
+
+    // Rare, and seeding a generator is costly, so keep it off the common path.
+    #[cold]
+    #[inline(never)]
+    fn retry_u32(&self, n: u32, e: u64) -> u32 {
+        let mut r = Tandem::from_key(self.key, 0, self.k)
+            .sub(PURPOSE_BELOW32)
+            .split(e);
+        let t = n.wrapping_neg() % n;
+        loop {
+            let m = u64::from(r.next_u32()) * u64::from(n);
+            if (m as u32) >= t {
+                return (m >> 32) as u32;
+            }
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn retry_u64(&self, n: u64, e: u64) -> u64 {
+        let mut r = Tandem::from_key(self.key, 0, self.k)
+            .sub(PURPOSE_BELOW64)
+            .split(e);
+        let t = n.wrapping_neg() % n;
+        loop {
+            let m = u128::from(r.next_u64()) * u128::from(n);
+            if (m as u64) >= t {
+                return (m >> 64) as u64;
+            }
         }
     }
 
