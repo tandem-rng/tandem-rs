@@ -1,5 +1,5 @@
-//! Bounded integers, normals and exponentials agree with the shared device core, and fills agree with
-//! scalar draws. The fixed values come from tools/gen_derived.py.
+//! Bounded integers, normals and exponentials agree with tandem-c's cross fixtures, and fills agree
+//! with scalar draws. The fixed values come from tools/gen_derived.py.
 
 // The reference values carry 17 digits as the device core prints them.
 #[allow(clippy::excessive_precision)]
@@ -62,21 +62,26 @@ fn bound_zero_returns_zero_after_one_draw() {
 }
 
 #[test]
-fn normals_match_the_device_core() {
-    let (want, end) = NORMAL_F64;
-    let mut rng = start();
-    let got: Vec<f64> = (0..want.len() / 2)
-        .flat_map(|_| rng.normal2_f64())
-        .collect();
-    for (i, (got, want)) in got.iter().zip(want).enumerate() {
-        assert!(same_f64(*got, *want), "f64 {i}: {got} against {want}");
+fn normals_match_tandem_c() {
+    // The rows start unaligned and put a wedge accept, a wedge reject and a tail at element 20.
+    for (at, want, end) in NORMAL_F64 {
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
+        let mut got = vec![0.0; want.len()];
+        rng.fill_normal_f64(&mut got);
+        for (i, (got, want)) in got.iter().zip(*want).enumerate() {
+            assert!(
+                same_f64(*got, *want),
+                "f64 at {at}, {i}: {got} against {want}"
+            );
+        }
+        assert_eq!(rng.position(), *end, "f64 position at {at}");
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
+        let scalar: Vec<f64> = want.iter().map(|_| rng.normal_f64()).collect();
+        assert_eq!(scalar, got, "f64 scalar draws at {at}");
+        assert_eq!(rng.position(), *end);
     }
-    assert_eq!(rng.position(), end);
-    let mut rng = start();
-    let mut got = vec![0.0; want.len()];
-    rng.fill_normal_f64(&mut got);
-    assert!(got.iter().zip(want).all(|(g, w)| same_f64(*g, *w)));
-    assert_eq!(rng.position(), end);
 
     let (want, end) = NORMAL_F32;
     let mut rng = start();
@@ -220,17 +225,36 @@ fn bounded_fill_without_rejection_is_the_scalar_draws() {
 }
 
 #[test]
-fn normal_fills_are_flattened_pairs() {
+fn normal_f64_fills_cut_anywhere_equal_the_whole() {
+    // The fallback is keyed by the global draw index, so the misses of a fill split at any
+    // element equal those of the whole fill. 3000 draws hold about 13 misses. The cuts cross
+    // the block of the fill and a row, and the start is unaligned.
+    for cut in [0, 1, 15, 16, 777, 1024, 1025, 3000] {
+        let mut whole = start();
+        let mut a = vec![0.0; 3000];
+        whole.fill_normal_f64(&mut a);
+        let mut parts = start();
+        let mut b = vec![0.0; 3000];
+        let (head, tail) = b.split_at_mut(cut);
+        parts.fill_normal_f64(head);
+        parts.fill_normal_f64(tail);
+        assert_eq!(a, b, "cut at {cut}");
+        assert_eq!(whole, parts);
+    }
+}
+
+#[test]
+fn empty_normal_f64_fill_aligns_the_position() {
+    let mut rng = start();
+    rng.fill_normal_f64(&mut []);
+    assert_eq!(rng.position(), 64);
+}
+
+#[test]
+fn normal_f32_fills_are_flattened_pairs() {
     // Lengths cross the block of the normal fill and a row, and include odd ones, which
     // use the cos half of the last pair and still consume both of its draws.
     for len in [0, 1, 2, 127, 128, 129, 255, 257, 300, 1001] {
-        let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
-        let mut got = vec![0.0; len];
-        a.fill_normal_f64(&mut got);
-        let want: Vec<f64> = (0..len.div_ceil(2)).flat_map(|_| b.normal2_f64()).collect();
-        assert_eq!(got, want[..len], "normal_f64 at {len}");
-        assert_eq!(a, b, "normal_f64 position at {len}");
-
         let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
         let mut got = vec![0.0; len];
         a.fill_normal_f32(&mut got);
@@ -241,9 +265,8 @@ fn normal_fills_are_flattened_pairs() {
 }
 
 #[test]
-fn scalar_normal_is_the_cos_half() {
+fn scalar_normal_f32_is_the_cos_half() {
     let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
-    assert_eq!(a.normal_f64(), b.normal2_f64()[0]);
     assert_eq!(a.normal_f32(), b.normal2_f32()[0]);
     assert_eq!(a, b);
 }
@@ -264,25 +287,6 @@ fn normals_have_unit_moments() {
         assert!(
             (var - 1.0).abs() < 5.0 * (2.0 / n).sqrt(),
             "{name} variance {var}"
-        );
-    }
-}
-
-#[test]
-fn normal_pairs_are_box_muller_to_an_ulp() {
-    // The oracle is the formula through the system sin and cos on the same draws.
-    let (mut a, mut b) = (Tandem::new(5), Tandem::new(5));
-    for i in 0..200_000 {
-        let z = a.normal2_f64();
-        let (u, v) = (b.next_f64(), b.next_f64());
-        let r = (-2.0 * (1.0 - u).ln()).sqrt();
-        let (s, c) = (std::f64::consts::TAU * v).sin_cos();
-        // The oracle's rounded angle 2 pi v is off by up to 2^-53 * 2 pi v, about 7e-16.
-        let tol = 1.5e-15 * r.max(1.0);
-        assert!(
-            (z[0] - r * c).abs() <= tol && (z[1] - r * s).abs() <= tol,
-            "pair {i}: {z:?} against {:?}",
-            [r * c, r * s]
         );
     }
 }

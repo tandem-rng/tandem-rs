@@ -1,17 +1,18 @@
-//! Bounded integers and normals. The specification does not define them. They follow the
-//! shared device core (`tandem-cuda`, `core.hpp`) so every port returns the same values.
+//! Bounded integers, `f32` normals and exponentials. The specification defines them in its
+//! non-normative Appendix A, so every port returns the same values. The `f64` normals are in
+//! `ziggurat`.
 
 use crate::Tandem;
 use crate::boxmuller::{
-    block_f32, block_f64, exponential_block_f32, exponential_block_f64, exponential_f32,
-    exponential_f64, pair_f32, pair_f64,
+    block_f32, exponential_block_f32, exponential_block_f64, exponential_f32, exponential_f64,
+    pair_f32,
 };
 
 /// Reserved purposes of the fallback generators of the bounded fills.
 const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
 const PURPOSE_BELOW64: u64 = 0x0042_4c57_3634;
 
-/// Draws per block of a normal fill: a multiple of the 128 `f64` a row holds, so the bulk
+/// Draws per block of a normal fill: a multiple of the 256 `f32` a row holds, so the bulk
 /// fill keeps whole rows.
 const BLOCK: usize = 4096;
 
@@ -122,22 +123,9 @@ impl Tandem {
         }
     }
 
-    /// The cosine half of a Box-Muller pair from two `f64` draws: `u = 1 - first` lies in
-    /// `(0, 1]`, so the logarithm is finite. It equals element 0 of
-    /// [`normal2_f64`](Self::normal2_f64).
-    pub fn normal_f64(&mut self) -> f64 {
-        self.normal2_f64()[0]
-    }
-
-    /// Two standard normals, `[cos, sin]` halves, from two `f64` draws.
-    pub fn normal2_f64(&mut self) -> [f64; 2] {
-        let (first, second) = (self.next_f64(), self.next_f64());
-        pair_f64(first, second)
-    }
-
-    /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws, with the same
-    /// mapping as [`normal_f64`](Self::normal_f64). Ports agree on it to a few ulps, not bit
-    /// for bit: libraries differ in the last bits of the logarithm, sine and cosine.
+    /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws: `u = 1 - first`
+    /// lies in `(0, 1]`, so the logarithm is finite. With `std` it matches tandem-c bit for
+    /// bit. Ports with other `log`, `cos` and `sin` agree to a few ulps.
     pub fn normal_f32(&mut self) -> f32 {
         self.normal2_f32()[0]
     }
@@ -149,19 +137,9 @@ impl Tandem {
     }
 
     /// Fill with standard normals. Pair `j` is elements `2j` and `2j + 1`, cos half first,
-    /// from draws `2j` and `2j + 1` of the `f64` fill, so the fill is the flattened
-    /// [`normal2_f64`](Self::normal2_f64) sequence. An odd length uses the cos half of its
+    /// from draws `2j` and `2j + 1` of the `f32` fill, so the fill is the flattened
+    /// [`normal2_f32`](Self::normal2_f32) sequence. An odd length uses the cos half of its
     /// last pair and still consumes both draws.
-    pub fn fill_normal_f64(&mut self, out: &mut [f64]) {
-        let mut draws = [0.0; BLOCK];
-        for chunk in out.chunks_mut(BLOCK) {
-            let draws = &mut draws[..chunk.len().next_multiple_of(2)];
-            self.fill_f64(draws);
-            normals(draws, chunk, block_f64, pair_f64);
-        }
-    }
-
-    /// The `f32` form of [`fill_normal_f64`](Self::fill_normal_f64), from the `f32` fill.
     pub fn fill_normal_f32(&mut self, out: &mut [f32]) {
         let mut draws = [0.0; BLOCK];
         for chunk in out.chunks_mut(BLOCK) {

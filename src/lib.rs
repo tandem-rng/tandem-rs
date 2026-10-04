@@ -60,6 +60,8 @@ mod parallel;
 mod rand;
 #[cfg(feature = "serde")]
 mod transport;
+mod zig_tables;
+mod ziggurat;
 
 use wide::{u32x4, u64x2};
 
@@ -220,7 +222,7 @@ impl Quad {
     #[inline(always)]
     fn seed(&mut self, key: &[u32; 4], c0: u64) {
         let lo = c0 as u32;
-        let mut q = Quad {
+        *self = Quad {
             o: [
                 u32x4::new([lo, lo + 1, lo + 2, lo + 3]),
                 u32x4::splat((c0 >> 32) as u32),
@@ -228,14 +230,35 @@ impl Quad {
                 AUX_STREAM4,
             ],
             h: key.map(u32x4::splat),
-        };
-        for rc in &RC4 {
-            q.step();
-            q.o[0] ^= *rc;
-            q = Quad { o: q.h, h: q.o };
         }
-        *self = q;
+        .f();
     }
+
+    /// `F` on the four lane states.
+    #[inline(always)]
+    fn f(mut self) -> Quad {
+        for rc in &RC4 {
+            self.step();
+            self.o[0] ^= *rc;
+            self = Quad {
+                o: self.h,
+                h: self.o,
+            };
+        }
+        self
+    }
+}
+
+/// `F` on eight states at once, word-major as `o[word][lane]`, followed by `steps` steps `T`.
+pub(crate) fn f_lanes(o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4], steps: u32) {
+    let mut lanes = Lanes::load(o, h);
+    for q in &mut lanes.q {
+        *q = q.f();
+        for _ in 0..steps {
+            q.step();
+        }
+    }
+    lanes.save(o, h);
 }
 
 /// What `run_rows` needs of the eight lane states of a group, so the same loop runs on the

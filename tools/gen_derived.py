@@ -29,7 +29,7 @@ def bounded(text, array, ty, start=False):
     return ",\n".join(rows)
 
 
-def exponential(text, array, ty):
+def fills(text, array, ty):
     # Entries are `{start, {values}, end_pos}`.
     body = re.search(rf"{array}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
     rows = []
@@ -43,8 +43,6 @@ below = read("cross_below.h")
 fill_below = read("cross_fill_below.h")
 normal = read("cross_normal.h")
 exp = read("cross_exponential.h")
-doubles = re.search(r"CROSS_NORMAL\[[^\]]*\] = \{(.*?)\};", normal, re.S).group(1)
-end = re.search(r"CROSS_NORMAL_END_POS = (\d+)u", normal).group(1)
 floats = re.search(r"CROSS_NORMALF\[[^\]]*\] = \{(.*?)\};", normal, re.S).group(1).replace("f", "")
 endf = re.search(r"CROSS_NORMALF_END_POS = (\d+)u", normal).group(1)
 
@@ -54,14 +52,14 @@ print("/// `(bound, draws, position after)`.")
 print(f"pub const BELOW_U32: &[(u32, &[u32], u64)] = &[\n{bounded(below, 'CROSS_U32', 'u32')},\n];\n")
 print("/// `(bound, draws, position after)`.")
 print(f"pub const BELOW_U64: &[(u64, &[u64], u64)] = &[\n{bounded(below, 'CROSS_U64', 'u64')},\n];\n")
-print("/// `normal2()` pairs, flattened, to 17 digits, and the position after.")
-print(f"pub const NORMAL_F64: (&[f64], u64) = (&[{doubles.strip()}], {end});")
-print("\n/// `normal2f()` pairs, flattened, to 9 digits, and the position after.")
+print("/// `normal_f64` fills of `Tandem::new(42)`: `(start position, values, position after)`.")
+print(f"pub const NORMAL_F64: &[(u64, &[f64], u64)] = &[\n{fills(normal, 'CROSS_NORMAL', 'f64')},\n];")
+print("\n/// `normal2_f32()` pairs, flattened, to 9 digits, and the position after.")
 print(f"pub const NORMAL_F32: (&[f32], u64) = (&[{floats.strip()}], {endf});\n")
 print("/// `fill_below` cases: `(start position, bound, values, position after)`.")
 print(f"pub const FILL_BELOW_U32: &[(u64, u32, &[u32], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U32', 'u32', True)},\n];\n")
 print(f"pub const FILL_BELOW_U64: &[(u64, u64, &[u64], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U64', 'u64', True)},\n];")
 
 print("\n/// `exponential` fills: `(start position, values, position after)`.")
-print(f"pub const EXPONENTIAL_F64: &[(u64, &[f64], u64)] = &[\n{exponential(exp, 'CROSS_EXPONENTIAL', 'f64')},\n];\n")
-print(f"pub const EXPONENTIAL_F32: &[(u64, &[f32], u64)] = &[\n{exponential(exp, 'CROSS_EXPONENTIALF', 'f32')},\n];")
+print(f"pub const EXPONENTIAL_F64: &[(u64, &[f64], u64)] = &[\n{fills(exp, 'CROSS_EXPONENTIAL', 'f64')},\n];\n")
+print(f"pub const EXPONENTIAL_F32: &[(u64, &[f32], u64)] = &[\n{fills(exp, 'CROSS_EXPONENTIALF', 'f32')},\n];")

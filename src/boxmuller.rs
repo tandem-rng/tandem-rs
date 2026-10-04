@@ -1,8 +1,9 @@
-//! Box-Muller on whole blocks of pairs, in plain Rust that LLVM vectorises. The shape and the
-//! coefficients are tandem-c's, so the ports compute the same arithmetic.
+//! The `f32` Box-Muller normals on whole blocks of pairs, the exponentials, and the reference
+//! logarithm of Appendix A, in plain Rust that LLVM vectorises. The shape and the coefficients
+//! are tandem-c's, so the ports compute the same arithmetic.
 //!
-//! The exponentials `-ln(1 - a)` share its logarithm and run as one in-place pass over the
-//! uniforms.
+//! The exponentials `-ln(1 - a)` and the `f64` ziggurat share the logarithm. The exponentials
+//! run as one in-place pass over the uniforms.
 //!
 //! A pair `(a, b)` gives `r = sqrt(-2 ln(1 - a))` and the normals `r cos(2 pi b)` and
 //! `r sin(2 pi b)`, cos first.
@@ -50,18 +51,6 @@ fn fmaf(a: f32, b: f32, c: f32) -> f32 {
 // core has no float square root, and `wide` supplies the hardware instruction.
 #[cfg(feature = "std")]
 #[inline(always)]
-fn sqrt(x: f64) -> f64 {
-    x.sqrt()
-}
-
-#[cfg(not(feature = "std"))]
-#[inline(always)]
-fn sqrt(x: f64) -> f64 {
-    wide::f64x2::new([x, 0.0]).sqrt().to_array()[0]
-}
-
-#[cfg(feature = "std")]
-#[inline(always)]
 fn sqrtf(x: f32) -> f32 {
     x.sqrt()
 }
@@ -82,22 +71,6 @@ const LN_SERIES: [f64; 7] = [
     0.33333333333331017,
     1.0,
 ];
-const SIN_SERIES: [f64; 6] = [
-    1.5914650986900946e-10,
-    -2.5051097984389413e-08,
-    2.755731600073921e-06,
-    -0.00019841269836630226,
-    0.008333333333330813,
-    -0.16666666666666669,
-];
-const COS_SERIES: [f64; 6] = [
-    2.0665708703855164e-09,
-    -2.7555858522576447e-07,
-    2.480158263811954e-05,
-    -0.0013888888882156126,
-    0.04166666666663108,
-    -0.4999999999999997,
-];
 
 /// `c[0] x^n + ... + c[n]` by Horner's rule, each step one fused multiply-add.
 #[inline(always)]
@@ -109,9 +82,9 @@ fn horner<const C: usize>(x: f64, c: &[f64; C]) -> f64 {
     acc
 }
 
-/// `-2 ln x` for `x` in `(0, 1]`.
+/// `-2 ln x` for `x` in `(0, 1]`, the reference logarithm `L` of Appendix A.
 #[inline(always)]
-fn neg2_log(x: f64) -> f64 {
+pub(crate) fn neg2_log(x: f64) -> f64 {
     // Adding the bits of `sqrt(1/2)` to the exponent field makes the mantissa roll over into
     // it exactly when the mantissa is at least `sqrt(1/2)`, which picks `k`.
     let ix = x.to_bits().wrapping_add(0x0009_5f62_0000_0000);
@@ -127,58 +100,10 @@ fn neg2_log(x: f64) -> f64 {
     )
 }
 
-/// `sqrt(-2 ln(1 - a))` for `a` in `[0, 1)`.
-#[inline(always)]
-fn radius(a: f64) -> f64 {
-    sqrt(neg2_log(1.0 - a))
-}
-
 /// `-ln(1 - a)` for `a` in `[0, 1)`. Halving is exact.
 #[inline(always)]
 pub(crate) fn exponential_f64(a: f64) -> f64 {
     0.5 * neg2_log(1.0 - a)
-}
-
-/// `(cos, sin)` of `2 pi b` for `b` in `[0, 1)`.
-#[inline(always)]
-fn rotation(b: f64) -> (f64, f64) {
-    let q = (b * 4.0 + 0.5) as i64;
-    let th = fma(-(q as f64), 0.25, b) * core::f64::consts::TAU;
-    let w = th * th;
-    let sn = th * fma(w, horner(w, &SIN_SERIES), 1.0);
-    let cs = fma(w, horner(w, &COS_SERIES), 1.0);
-    // Odd q swaps the two, bit 1 of q negates the sine, and bit 1 of q + 1 negates the cosine.
-    let qu = q as u64;
-    let sm = 0u64.wrapping_sub(qu & 1);
-    let (sb, cb) = (sn.to_bits(), cs.to_bits());
-    let xb = ((sb & sm) | (cb & !sm)) ^ ((qu.wrapping_add(1) << 62) & (1 << 63));
-    let yb = ((cb & sm) | (sb & !sm)) ^ ((qu << 62) & (1 << 63));
-    (f64::from_bits(xb), f64::from_bits(yb))
-}
-
-/// One pair of uniforms to `[cos, sin]` normals.
-#[inline(always)]
-pub(crate) fn pair_f64(a: f64, b: f64) -> [f64; 2] {
-    let r = radius(a);
-    let (c, s) = rotation(b);
-    [r * c, r * s]
-}
-
-/// Uniforms `[a0, b0, a1, b1, ...]` to normals `[cos0, sin0, cos1, sin1, ...]`. Out of line,
-/// with a trip count the compiler does not know, so that it vectorises and interleaves the
-/// loop as one body.
-#[inline(never)]
-pub(crate) fn block_f64(u: &[f64], z: &mut [f64]) {
-    #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
-    if crate::arch::fma_available() {
-        return crate::arch::block_f64_fma(u, z);
-    }
-    block_f64_body(u, z)
-}
-
-#[inline(always)]
-pub(crate) fn block_f64_body(u: &[f64], z: &mut [f64]) {
-    unrolled::<f64, 4>(u, z, pair_f64)
 }
 
 /// The pair loop unrolled by `U` pairs. The body is then several independent chains, which the
@@ -268,7 +193,8 @@ pub(crate) fn pair_f32(a: f32, b: f32) -> [f32; 2] {
     [r * c, r * s]
 }
 
-/// The `f32` form of [`block_f64`].
+/// Uniforms `[a0, b0, a1, b1, ...]` to normals `[cos0, sin0, cos1, sin1, ...]`. Out of line,
+/// with a trip count the compiler does not know, so that it vectorises the loop as one body.
 #[inline(never)]
 pub(crate) fn block_f32(u: &[f32], z: &mut [f32]) {
     #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
@@ -284,7 +210,7 @@ pub(crate) fn block_f32_body(u: &[f32], z: &mut [f32]) {
 }
 
 /// `-ln(1 - u)` in place over uniforms. Out of line, so that the vectoriser sees one loop
-/// with an unknown trip count, as in [`block_f64`].
+/// with an unknown trip count, as in [`block_f32`].
 #[inline(never)]
 pub(crate) fn exponential_block_f64(z: &mut [f64]) {
     #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
@@ -327,25 +253,24 @@ mod tests {
     const SAMPLES: usize = 1_000_000;
 
     #[test]
-    fn radius_is_within_a_few_ulps() {
+    fn logarithm_and_radius_are_within_a_few_ulps() {
         let mut rng = Tandem::new(11);
         let mut worst: f64 = 0.0;
+        let mut check = |x: f64| {
+            let want = -2.0 * x.ln();
+            worst = worst.max(((neg2_log(x) - want) / want).abs());
+        };
         for _ in 0..SAMPLES {
-            let a = rng.next_f64();
-            let want = (-2.0 * (1.0 - a).ln()).sqrt();
-            worst = worst.max(((radius(a) - want) / want).abs());
+            check(1.0 - rng.next_f64());
         }
-        // Uniforms near 0 and just below 1 are the hard ends: `ln` cancels at one and the
-        // exponent is large at the other.
+        // Arguments near 1 and near 0 are the hard ends: `ln` cancels at one and the exponent
+        // is large at the other.
         for j in 1..=2000 {
             let a = j as f64 * (1.0 / (1u64 << 53) as f64);
-            let want = (-2.0 * (1.0 - a).ln()).sqrt();
-            worst = worst.max(((radius(a) - want) / want).abs());
-            let a = 1.0 - a;
-            let want = (-2.0 * (1.0 - a).ln()).sqrt();
-            worst = worst.max(((radius(a) - want) / want).abs());
+            check(1.0 - a);
+            check(a);
         }
-        assert!(worst < 1e-15, "relative error {worst}");
+        assert!(worst < 2e-15, "relative error {worst}");
         let mut worst: f64 = 0.0;
         for _ in 0..SAMPLES {
             let a = rng.next_f32();
@@ -353,20 +278,5 @@ mod tests {
             worst = worst.max(((f64::from(radius32(a)) - want) / want).abs());
         }
         assert!(worst < 4e-7, "f32 relative error {worst}");
-    }
-
-    #[test]
-    fn rotation_is_within_a_few_ulps() {
-        let mut rng = Tandem::new(12);
-        let mut worst: f64 = 0.0;
-        for _ in 0..SAMPLES {
-            let b = rng.next_f64();
-            let (c, s) = rotation(b);
-            // The rounded angle of the oracle is off by up to 7e-16.
-            let (es, ec) = (core::f64::consts::TAU * b).sin_cos();
-            worst = worst.max((s - es).abs()).max((c - ec).abs());
-            assert!((s * s + c * c - 1.0).abs() < 1.5e-15);
-        }
-        assert!(worst < 1e-15, "absolute error {worst}");
     }
 }

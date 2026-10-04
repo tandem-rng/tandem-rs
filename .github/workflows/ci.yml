@@ -95,6 +95,19 @@ jobs:
           python3 tools/gen_vectors.py ../tandem-spec/vectors.json > tests/vectors_data/mod.rs
           rustfmt --edition 2024 tests/vectors_data/mod.rs
           git diff --exit-code tests/vectors_data/mod.rs
+  zig-tables:
+    name: ziggurat tables are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: |
+          git clone --depth 1 https://github.com/tandem-rng/spec ../tandem-spec
+          python3 tools/gen_zig_tables.py ../tandem-spec/tables/normal_f64_zig1024.json > src/zig_tables.rs
+          rustfmt --edition 2024 src/zig_tables.rs
+          git diff --exit-code src/zig_tables.rs
   derived:
     name: derived data is current
     runs-on: ubuntu-latest
