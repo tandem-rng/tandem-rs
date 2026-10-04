@@ -10,10 +10,10 @@ Detail moved out of the README. Sections follow the README headings.
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`)
   plus a cache of the current 1024-bit row. It is `Copy`.
 - Bounded integers (`below_u32`, `below_u64`) and standard normals (`normal_f64`,
-  `normal_f32`, and the pairs `normal2_f64`, `normal2_f32`) with fills. They are not in the
-  specification. They follow the shared device core in `tandem-cuda`, so every port returns
-  the same integers and `f64` normals up to the last bits of `log`, `cos` and `sin`. A bound
-  of 0 returns 0 after one draw.
+  `normal_f32`, and the pairs `normal2_f64`, `normal2_f32`) with fills. They follow Appendix A
+  of the specification, which is not normative, and the shared device core in `tandem-cuda`,
+  so every port returns the same integers and, with tandem-c's polynomials, the same `f64`
+  normals bit for bit. A bound of 0 returns 0 after one draw.
 - `fill_below_*` takes one draw of the plain fill per element and consumes exactly one draw
   per element, so it parallelises. A rejected draw retries on `sub(purpose).split(g)` of
   the key, `g` being the global draw index, so a fill cut anywhere equals the whole. That
@@ -21,7 +21,8 @@ Detail moved out of the README. Sections follow the README headings.
 - A Box-Muller pair uses two uniform draws. `normal_*` returns its cos half and `normal2_*`
   the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
   length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
-  draws and run in `f32`. They match tandem-c bit for bit and the device core to a few ulps.
+  draws and run in `f32`. They match tandem-c bit for bit. On the device the `f64` normals
+  match too, and the `f32` normals, which use `__sincosf`, agree to a few ulps.
 - Normals are Box-Muller on whole blocks of uniforms in plain Rust that the compiler
   vectorises, with tandem-c's arithmetic: an exponent split and a short atanh series for the
   logarithm, an exact quarter-turn reduction for the sine and cosine. No libm is called. With
@@ -85,8 +86,8 @@ generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`.
 stream dumps in `tests/data`, complex fills included. `tests/derived.rs` compares bounded
 integers, bounded fills and normals with the cross-check values of `tandem-c`, which it
 generates from the `tandem-cuda` core (`tools/gen_derived.py` converts them), and the fills
-with their definitions. Those values come from the device core and its libm, so the comparison
-has a tolerance.
+with their definitions. With `std` the normals compare bit for bit. Without it they compare
+within the tolerance of Appendix A.
 
 `tests/normal_bits.rs` (with `std`) hashes 1e6 pairs of `f64` and `f32` normals from five
 positions and compares with the hash in tandem-c's `tests/test_normal_bits.c`.
