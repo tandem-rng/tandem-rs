@@ -3,6 +3,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use rand_distr::{Distribution, Exp1};
 use tandem_rng::Tandem;
 
 const N: usize = 1 << 24;
@@ -19,6 +22,7 @@ fn best(bytes: usize, mut body: impl FnMut()) -> f64 {
 
 fn main() {
     let mut rng = Tandem::new(42);
+    let mut std_rng = StdRng::seed_from_u64(42);
     let mut u32s = vec![0u32; N];
     let mut u64s = vec![0u64; N];
     let mut f32s = vec![0f32; N];
@@ -46,6 +50,29 @@ fn main() {
         (
             "fill_f64",
             best(N * 8, || rng.fill_f64(black_box(&mut f64s))),
+        ),
+        (
+            "fill_exponential_f32",
+            best(N * 4, || rng.fill_exponential_f32(black_box(&mut f32s))),
+        ),
+        (
+            "fill_exponential_f64",
+            best(N * 8, || rng.fill_exponential_f64(black_box(&mut f64s))),
+        ),
+        // rand's default generator and its ziggurat, one sample per element.
+        (
+            "rand_distr Exp1 f32, StdRng",
+            best(N * 4, || {
+                f32s.iter_mut().for_each(|x| *x = Exp1.sample(&mut std_rng));
+                black_box(&mut f32s);
+            }),
+        ),
+        (
+            "rand_distr Exp1 f64, StdRng",
+            best(N * 8, || {
+                f64s.iter_mut().for_each(|x| *x = Exp1.sample(&mut std_rng));
+                black_box(&mut f64s);
+            }),
         ),
     ];
     for (label, gibs) in rows {

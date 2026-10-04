@@ -35,6 +35,13 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   build with `simd-intrinsics` compiles a copy of the loop with `fma` and picks it at run
   time. Without a fused instruction `mul_add` is a correct but slower library call. Without
   `std` the plain form differs from tandem-c in the last bits.
+- Exponentials of rate 1 (`exponential_f64`, `exponential_f32`, `fill_exponential_f64`,
+  `fill_exponential_f32`), `-ln(1 - u)` from one uniform each, defined in Appendix A of the
+  specification. Element `i` of a fill is draw `i`, so a fill cut anywhere equals the whole and
+  the scalar draws. `f32` draws run in `f32`. The logarithm is the normals', so with `std` the
+  values are bit identical to tandem-c's and `tandem-cuda`'s, and the x86_64 build with
+  `simd-intrinsics` picks the `fma` copy of the loop at run time as for the normals. A length
+  of 0 leaves the position unchanged.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
@@ -64,6 +71,7 @@ rng.fill_u32(&mut words);
 let c = rng.next_c64();                        // [re, im], two f64 draws
 let i = rng.below_u32(10);                     // uniform in 0..10, Lemire
 let z = rng.normal_f64();                      // Box-Muller from two f64 draws
+let e = rng.exponential_f64();                 // -ln(1 - u) from one f64 draw
 let worker = rng.split(7);                     // by index, from the key alone
 let kids: Vec<Tandem> = rng.fork(4).collect(); // from the current block, parent moves on
 let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());
@@ -133,6 +141,14 @@ and its libm, so the comparison has a tolerance.
 positions and compares with the hash in tandem-c's `tests/test_normal_bits.c`. `cargo run
 --release --example dump_normals | shasum -a 256` writes the same bytes as tandem-c's
 `tools/dump_normals.c`.
+`tests/derived.rs` also compares the exponential fills and scalar draws with tandem-c's
+`tests/cross_exponential.h`, bit for bit with `std`, at five positions, and checks fills cut
+anywhere, a length of 0, and the Exp(1) moments to the fourth order and a Kolmogorov-Smirnov
+statistic on 1e7 `f64` and 1e7 `f32` samples.
+`tests/exponential_bits.rs` (with `std`) hashes 1e6 `f64` and 1e6 `f32` exponentials from five
+positions and compares with the hash in tandem-c's `tests/test_exponential_bits.c`. `cargo run
+--release --example dump_exponentials | shasum -a 256` writes the same bytes as tandem-c's
+`tools/dump_exponentials.c`.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.
@@ -153,6 +169,10 @@ second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s
 | `fill_u64` | 21.5 | 21.4 |
 | `fill_f32` | 17.1 | 18.6 |
 | `fill_f64` | 16.9 | 18.5 |
+| `fill_exponential_f32` | 6.2 | 6.4 |
+| `fill_exponential_f64` | 5.7 | 5.9 |
+| `rand_distr::Exp1` `f32`, `StdRng` | 0.88 | 0.88 |
+| `rand_distr::Exp1` `f64`, `StdRng` | 1.8 | 1.8 |
 | `next_f64` chain, ns per draw | 1.39 | 1.42 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
@@ -161,10 +181,17 @@ second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s
 | `fill_u64` | 5.7 | 5.7 | 11.8 |
 | `fill_f32` | 5.0 | 5.2 | 9.0 |
 | `fill_f64` | 3.8 | 4.4 | 7.2 |
+| `fill_exponential_f32` | 0.27 | 0.27 | 4.2 |
+| `fill_exponential_f64` | 0.23 | 0.33 | 3.0 |
+| `rand_distr::Exp1` `f32`, `StdRng` | 0.64 | 0.65 | 0.66 |
+| `rand_distr::Exp1` `f64`, `StdRng` | 1.3 | 1.3 | 1.3 |
 | `next_f64` chain, ns per draw | 4.96 | 4.94 | 3.96 |
 
 The SSE2 column is the same build as the AVX2 column with `TANDEM_NO_AVX2` set. All three
-columns come from one session.
+columns come from one session, except that the exponential and `Exp1` rows come from a
+later one. The `Exp1` rows draw one sample per element from `rand`'s default generator.
+Without AVX2 and FMA the x86_64 target has no fused instruction, so each `mul_add` of the
+exponentials and normals is a library call, which is why those columns fall behind `Exp1`.
 
 With the `rayon` feature, `cargo run --release --features rayon --example bench_par` times the
 serial and parallel fills of 2^25 elements on all 14 threads of an Apple M4, minimum of seven

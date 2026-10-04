@@ -27,6 +27,8 @@ debug = false
 codegen-units = 1
 
 [dev-dependencies]
+rand = "0.10"
+rand_distr = "0.6"
 serde_json = "1"
 
 [features]
