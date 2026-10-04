@@ -41,33 +41,47 @@ fn bound_zero_returns_zero_after_one_draw() {
 }
 
 #[test]
-fn normal_matches_the_device_core() {
-    // libm and the C library differ in the last bits of log and cos.
+fn normals_match_the_device_core() {
+    // libm and the C library differ in the last bits of log, cos and sin.
     let (want, end) = NORMAL_F64;
     let mut rng = start();
-    for (i, want) in want.iter().enumerate() {
-        let got = rng.normal_f64();
+    let got: Vec<f64> = (0..want.len() / 2)
+        .flat_map(|_| rng.normal2_f64())
+        .collect();
+    for (i, (got, want)) in got.iter().zip(want).enumerate() {
         assert!(
-            (got - want).abs() <= 1e-13 * want.abs().max(1.0),
-            "element {i}: {got} against {want}"
+            (got - want).abs() <= 1e-12 * want.abs().max(1.0),
+            "f64 {i}: {got} against {want}"
         );
     }
     assert_eq!(rng.position(), end);
-}
-
-#[test]
-fn normal_f32_matches_the_device_core() {
-    // logf and cosf differ between libraries by a few ulps.
-    let (want, end) = NORMAL_F32;
     let mut rng = start();
-    for (i, want) in want.iter().enumerate() {
-        let got = rng.normal_f32();
-        let tol = 8.0 * f32::EPSILON * want.abs() + 1e-6;
+    let mut got = vec![0.0; want.len()];
+    rng.fill_normal_f64(&mut got);
+    assert!(
+        got.iter()
+            .zip(want)
+            .all(|(g, w)| (g - w).abs() <= 1e-12 * w.abs().max(1.0))
+    );
+    assert_eq!(rng.position(), end);
+
+    let (want, end) = NORMAL_F32;
+    let tol = |w: &f32| 8.0 * f32::EPSILON * w.abs() + 1e-6;
+    let mut rng = start();
+    let got: Vec<f32> = (0..want.len() / 2)
+        .flat_map(|_| rng.normal2_f32())
+        .collect();
+    for (i, (got, want)) in got.iter().zip(want).enumerate() {
         assert!(
-            (got - want).abs() <= tol,
-            "element {i}: {got} against {want}"
+            (got - want).abs() <= tol(want),
+            "f32 {i}: {got} against {want}"
         );
     }
+    assert_eq!(rng.position(), end);
+    let mut rng = start();
+    let mut got = vec![0.0; want.len()];
+    rng.fill_normal_f32(&mut got);
+    assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol(w)));
     assert_eq!(rng.position(), end);
 }
 
@@ -194,21 +208,32 @@ fn bounded_fill_without_rejection_is_the_scalar_draws() {
 }
 
 #[test]
-fn normal_fills_are_scalar_draws() {
-    // Lengths cross the block of the normal fill and a row.
-    for len in [0, 1, 127, 128, 129, 300, 1000] {
+fn normal_fills_are_flattened_pairs() {
+    // Lengths cross the block of the normal fill and a row, and include odd ones, which
+    // use the cos half of the last pair and still consume both of its draws.
+    for len in [0, 1, 2, 127, 128, 129, 255, 257, 300, 1001] {
         let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
         let mut got = vec![0.0; len];
         a.fill_normal_f64(&mut got);
-        assert!(got.iter().all(|&x| x == b.normal_f64()));
+        let want: Vec<f64> = (0..len.div_ceil(2)).flat_map(|_| b.normal2_f64()).collect();
+        assert_eq!(got, want[..len], "normal_f64 at {len}");
         assert_eq!(a, b, "normal_f64 position at {len}");
 
         let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
         let mut got = vec![0.0; len];
         a.fill_normal_f32(&mut got);
-        assert!(got.iter().all(|&x| x == b.normal_f32()));
+        let want: Vec<f32> = (0..len.div_ceil(2)).flat_map(|_| b.normal2_f32()).collect();
+        assert_eq!(got, want[..len], "normal_f32 at {len}");
         assert_eq!(a, b, "normal_f32 position at {len}");
     }
+}
+
+#[test]
+fn scalar_normal_is_the_cos_half() {
+    let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
+    assert_eq!(a.normal_f64(), b.normal2_f64()[0]);
+    assert_eq!(a.normal_f32(), b.normal2_f32()[0]);
+    assert_eq!(a, b);
 }
 
 #[test]

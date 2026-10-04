@@ -15,19 +15,22 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   binary16 as bit patterns, `char`, complex `f32` and `f64` as `[re, im]` pairs. Random
   access without advancing. Split by index, fork at the current block, sub by purpose.
 - Bounded integers (`below_u32`, `below_u64`) and standard normals (`normal_f64`,
-  `normal_f32`) with fills. They are not in the specification. They follow the shared device
-  core in `tandem-cuda`, so every port returns the same integers and `f64` normals up to the
-  last bits of `log` and `cos`. A bound of 0 returns 0 after one draw. `fill_below_*` takes
-  draw `i` of the plain fill for element `i` and consumes exactly one draw per element, so it
-  parallelises. A rejected draw retries on `sub(purpose).split(i)` of the key, as the device
-  core does. That equals the scalar calls whenever nothing is rejected. An `f64` normal uses two
-  `f64` draws. An `f32` normal uses two `f32` draws and runs Box-Muller in `f32`, so ports
-  agree on it to a few ulps, not bit for bit.
+  `normal_f32`, and the pairs `normal2_f64`, `normal2_f32`) with fills. They are not in the
+  specification. They follow the shared device core in `tandem-cuda`, so every port returns
+  the same integers and `f64` normals up to the last bits of `log`, `cos` and `sin`. A bound
+  of 0 returns 0 after one draw.
+- `fill_below_*` takes draw `i` of the plain fill for element `i` and consumes exactly one
+  draw per element, so it parallelises. A rejected draw retries on `sub(purpose).split(i)` of
+  the key, as the device core does. That equals the scalar calls whenever nothing is rejected.
+- A Box-Muller pair uses two uniform draws. `normal_*` returns its cos half and `normal2_*`
+  the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
+  length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
+  draws and run in `f32`, so ports agree on them to a few ulps, not bit for bit.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
-- The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32`, `par_fill_f64`, `par_fill_below_u32` and
-  `par_fill_below_u64`.
+- The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32`, `par_fill_f64`,
+  `par_fill_below_u32`, `par_fill_below_u64`, `par_fill_normal_f64` and `par_fill_normal_f32`.
   They split the output at row boundaries, fill the parts on separate threads and move the
   position once, so they equal the serial fills. The feature pulls in `std`.
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its

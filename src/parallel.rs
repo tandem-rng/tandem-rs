@@ -65,6 +65,34 @@ impl Tandem {
             .enumerate()
             .for_each(|(i, chunk)| me.bound_u64(chunk, (i * TASK_ROWS * 16) as u64, n));
     }
+    /// [`fill_normal_f64`](Self::fill_normal_f64) across threads. Each task starts at its
+    /// pair's draws, so no scratch buffer for the uniforms is needed.
+    pub fn par_fill_normal_f64(&mut self, out: &mut [f64]) {
+        self.par_normals(out, 64, Tandem::fill_normal_f64)
+    }
+    /// [`fill_normal_f32`](Self::fill_normal_f32) across threads.
+    pub fn par_fill_normal_f32(&mut self, out: &mut [f32]) {
+        self.par_normals(out, 32, Tandem::fill_normal_f32)
+    }
+
+    fn par_normals<T: Send>(
+        &mut self,
+        out: &mut [T],
+        w: u32,
+        fill: impl Fn(&mut Tandem, &mut [T]) + Sync,
+    ) {
+        // An even task size keeps every pair inside one task.
+        const TASK: usize = 8192;
+        let base = crate::align(self.pos, w);
+        let (key, k) = (self.key, self.k);
+        let w = u64::from(w);
+        out.par_chunks_mut(TASK).enumerate().for_each(|(i, chunk)| {
+            let mut task = Tandem::from_key(key, base + w * (i * TASK) as u64, k);
+            fill(&mut task, chunk);
+        });
+        self.pos = base + w * out.len().next_multiple_of(2) as u64;
+    }
+
     /// [`fill_f64`](Self::fill_f64) across threads.
     pub fn par_fill_f64(&mut self, out: &mut [f64]) {
         self.par_fill(out)

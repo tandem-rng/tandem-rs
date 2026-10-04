@@ -114,56 +114,77 @@ impl Tandem {
         }
     }
 
-    /// A standard normal by Box-Muller from two `f64` draws: `u = 1 - first` lies in
-    /// `(0, 1]`, so the logarithm is finite.
+    /// The cosine half of a Box-Muller pair from two `f64` draws: `u = 1 - first` lies in
+    /// `(0, 1]`, so the logarithm is finite. It equals element 0 of
+    /// [`normal2_f64`](Self::normal2_f64).
     pub fn normal_f64(&mut self) -> f64 {
         let first = self.next_f64();
         let second = self.next_f64();
-        box_muller(first, second)
+        box_muller2(first, second)[0]
     }
 
-    /// A standard normal by Box-Muller in `f32` from two `f32` draws, with the same mapping
-    /// as [`normal_f64`](Self::normal_f64). Ports agree on it to a few ulps, not bit for
-    /// bit: `logf` and `cosf` differ between libraries.
+    /// Two standard normals, `[cos, sin]` halves, from two `f64` draws.
+    pub fn normal2_f64(&mut self) -> [f64; 2] {
+        let first = self.next_f64();
+        let second = self.next_f64();
+        box_muller2(first, second)
+    }
+
+    /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws, with the same
+    /// mapping as [`normal_f64`](Self::normal_f64). Ports agree on it to a few ulps, not bit
+    /// for bit: `logf`, `cosf` and `sinf` differ between libraries.
     pub fn normal_f32(&mut self) -> f32 {
         let first = self.next_f32();
         let second = self.next_f32();
-        box_muller_f32(first, second)
+        box_muller2_f32(first, second)[0]
     }
 
-    /// Fill with standard normals: element `i` uses the `f64` draws `2i` and `2i + 1`, as
-    /// `out.len()` calls to [`normal_f64`](Self::normal_f64) would.
+    /// Two standard normals, `[cos, sin]` halves, from two `f32` draws.
+    pub fn normal2_f32(&mut self) -> [f32; 2] {
+        let first = self.next_f32();
+        let second = self.next_f32();
+        box_muller2_f32(first, second)
+    }
+
+    /// Fill with standard normals. Pair `j` is elements `2j` and `2j + 1`, cos half first,
+    /// from draws `2j` and `2j + 1` of the `f64` fill, so the fill is the flattened
+    /// [`normal2_f64`](Self::normal2_f64) sequence. An odd length uses the cos half of its
+    /// last pair and still consumes both draws.
     pub fn fill_normal_f64(&mut self, out: &mut [f64]) {
         let mut draws = [0.0; BLOCK];
-        for chunk in out.chunks_mut(BLOCK / 2) {
-            let draws = &mut draws[..2 * chunk.len()];
+        for chunk in out.chunks_mut(BLOCK) {
+            let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f64(draws);
-            for (x, pair) in chunk.iter_mut().zip(draws.as_chunks::<2>().0) {
-                *x = box_muller(pair[0], pair[1]);
+            for (x, pair) in chunk.chunks_mut(2).zip(draws.as_chunks::<2>().0) {
+                let z = box_muller2(pair[0], pair[1]);
+                x.copy_from_slice(&z[..x.len()]);
             }
         }
     }
 
-    /// Fill with standard normals: element `i` uses the `f32` draws `2i` and `2i + 1`, as
-    /// `out.len()` calls to [`normal_f32`](Self::normal_f32) would.
+    /// The `f32` form of [`fill_normal_f64`](Self::fill_normal_f64), from the `f32` fill.
     pub fn fill_normal_f32(&mut self, out: &mut [f32]) {
         let mut draws = [0.0; BLOCK];
-        for chunk in out.chunks_mut(BLOCK / 2) {
-            let draws = &mut draws[..2 * chunk.len()];
+        for chunk in out.chunks_mut(BLOCK) {
+            let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
-            for (x, pair) in chunk.iter_mut().zip(draws.as_chunks::<2>().0) {
-                *x = box_muller_f32(pair[0], pair[1]);
+            for (x, pair) in chunk.chunks_mut(2).zip(draws.as_chunks::<2>().0) {
+                let z = box_muller2_f32(pair[0], pair[1]);
+                x.copy_from_slice(&z[..x.len()]);
             }
         }
     }
 }
 
 #[inline]
-fn box_muller(first: f64, second: f64) -> f64 {
-    libm::sqrt(-2.0 * libm::log(1.0 - first)) * libm::cos(TAU * second)
+fn box_muller2(first: f64, second: f64) -> [f64; 2] {
+    let r = libm::sqrt(-2.0 * libm::log(1.0 - first));
+    [r * libm::cos(TAU * second), r * libm::sin(TAU * second)]
 }
 
 #[inline]
-fn box_muller_f32(first: f32, second: f32) -> f32 {
-    libm::sqrtf(-2.0 * libm::logf(1.0 - first)) * libm::cosf(TAU as f32 * second)
+fn box_muller2_f32(first: f32, second: f32) -> [f32; 2] {
+    let r = libm::sqrtf(-2.0 * libm::logf(1.0 - first));
+    let angle = TAU as f32 * second;
+    [r * libm::cosf(angle), r * libm::sinf(angle)]
 }

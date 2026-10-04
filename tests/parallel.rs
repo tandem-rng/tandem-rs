@@ -57,3 +57,29 @@ fn below_fills() {
         assert_eq!(par, serial);
     }
 }
+
+#[test]
+fn normal_fills() {
+    // One task is 8192 elements; the odd lengths end on a half pair.
+    for (pos, len) in [
+        (0, 0),
+        (70, 5),
+        (0, 8192),
+        (96, 8193),
+        (1, 40_001),
+        (0, 100_000),
+    ] {
+        let mut serial = Tandem::from_key([1, 2, 3, 4], pos, 32);
+        let mut par = serial;
+        let (mut want, mut got) = (vec![0f64; len], vec![0f64; len]);
+        serial.fill_normal_f64(&mut want);
+        par.par_fill_normal_f64(&mut got);
+        assert!(got == want, "f64 at position {pos}, length {len}");
+        assert_eq!(par, serial);
+        let (mut want, mut got) = (vec![0f32; len], vec![0f32; len]);
+        serial.fill_normal_f32(&mut want);
+        par.par_fill_normal_f32(&mut got);
+        assert!(got == want, "f32 at position {pos}, length {len}");
+        assert_eq!(par, serial);
+    }
+}
