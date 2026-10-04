@@ -6,10 +6,9 @@ Rust implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a noncr
 pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate is
 `tandem-rng`. It produces the stream the specification defines, bit for bit.
 
-- `no_std` and `#![forbid(unsafe_code)]`. The default `std` feature only adds the system
-  libm for the normals. Three dependencies: `rand_core` for the traits, `wide` for portable
-  vectors, which lower to NEON, SSE/AVX2 or scalar code, and `libm` for the normals without
-  `std`.
+- `no_std` and `#![forbid(unsafe_code)]`. The default `std` feature only adds fused
+  multiply-adds and the square root from the standard library. Two dependencies: `rand_core`
+  for the traits and `wide` for portable vectors, which lower to NEON, SSE/AVX2 or scalar code.
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`)
   plus a cache of the current 1024-bit row. It is `Copy`.
 - Every type in the specification: `bool`, 8 to 128-bit unsigned integers, `f32`, `f64`,
@@ -27,10 +26,12 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
   the `[cos, sin]` pair. `fill_normal_*` fills pairs from draws `2j` and `2j + 1`, so an odd
   length uses the cos half of its last pair and consumes both draws. `f32` normals use `f32`
   draws and run in `f32`, so ports agree on them to a few ulps, not bit for bit.
-- The default `std` feature takes the logarithm and square root of the normals from the system
-  libm. Without it the crate is `no_std` and uses the portable `libm` crate, which is several
-  times slower. The sine and cosine are the crate's own (`sincospi` style, no range
-  reduction), so they do not depend on the feature.
+- Normals are Box-Muller on whole blocks of uniforms with the crate's own logarithm (fdlibm's
+  algorithm) and range-free sine and cosine, in plain Rust that the compiler vectorises. The
+  logarithm is within one ulp of the system one over 10^8 random draws. The `std` feature
+  fuses the multiply-adds on aarch64 and FMA targets, so the last bits of a normal differ
+  between targets by an ulp or two. The scalar draws and the fills agree bit for bit on one
+  target.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
@@ -154,8 +155,8 @@ runs, in GiB/s of output:
 | `fill_f64` | 15.9 | 109 |
 | `fill_below_u32`, n = 1000 | 6.1 | 47 |
 | `fill_below_u64`, n = 1000 | 11.4 | 58 |
-| `fill_normal_f64` | 1.76 | 17.9 |
-| `fill_normal_f32` | 1.07 | 10.8 |
+| `fill_normal_f64` | 3.4 | 31 |
+| `fill_normal_f32` | 4.1 | 36 |
 
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
 4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one

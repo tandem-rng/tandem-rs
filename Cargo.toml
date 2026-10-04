@@ -13,7 +13,6 @@ include = ["src/**", "README.md", "LICENSE", "NOTICE"]
 
 [dependencies]
 bytemuck = { version = "1", default-features = false }
-libm = "0.2"
 pollster = { version = "1", optional = true }
 rand_core = "0.10"
 rayon = { version = "1", optional = true }
@@ -32,8 +31,8 @@ serde_json = "1"
 
 [features]
 default = ["std"]
-# The system libm for normals, several times faster than the `libm` crate. Without it the
-# crate is `no_std`.
+# Fused multiply-adds and the square root of the normals from the standard library. Without
+# it the crate is `no_std`, with the same stream and normals that differ in the last bits.
 std = []
 # Parallel fills over rows. Pulls in std.
 rayon = ["dep:rayon", "std"]

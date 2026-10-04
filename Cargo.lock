@@ -747,7 +747,6 @@ name = "tandem-rng"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "libm",
  "pollster",
  "rand_core",
  "rayon",

@@ -2,6 +2,7 @@
 //! shared device core (`tandem-cuda`, `core.hpp`) so every port returns the same values.
 
 use crate::Tandem;
+use crate::boxmuller::{PAIRS, pairs_f32, pairs_f64};
 
 /// Reserved purposes of the fallback generators of the bounded fills.
 const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
@@ -9,7 +10,7 @@ const PURPOSE_BELOW64: u64 = 0x0042_4c57_3634;
 
 /// Draws per block of a normal fill: a multiple of the 128 `f64` a row holds, so the bulk
 /// fill keeps whole rows.
-const BLOCK: usize = 256;
+const BLOCK: usize = 4096;
 
 impl Tandem {
     /// A uniform integer in `0..n` by Lemire's multiply and reject on `u32` draws.
@@ -116,32 +117,32 @@ impl Tandem {
     /// `(0, 1]`, so the logarithm is finite. It equals element 0 of
     /// [`normal2_f64`](Self::normal2_f64).
     pub fn normal_f64(&mut self) -> f64 {
-        let first = self.next_f64();
-        let second = self.next_f64();
-        box_muller2(first, second)[0]
+        self.normal2_f64()[0]
     }
 
     /// Two standard normals, `[cos, sin]` halves, from two `f64` draws.
     pub fn normal2_f64(&mut self) -> [f64; 2] {
-        let first = self.next_f64();
-        let second = self.next_f64();
-        box_muller2(first, second)
+        let (first, second) = (self.next_f64(), self.next_f64());
+        let mut d = [0.0; 2 * PAIRS];
+        d[..2].copy_from_slice(&[first, second]);
+        let z = pairs_f64(&d);
+        [z[0], z[1]]
     }
 
     /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws, with the same
     /// mapping as [`normal_f64`](Self::normal_f64). Ports agree on it to a few ulps, not bit
-    /// for bit: `logf`, `cosf` and `sinf` differ between libraries.
+    /// for bit: libraries differ in the last bits of the logarithm, sine and cosine.
     pub fn normal_f32(&mut self) -> f32 {
-        let first = self.next_f32();
-        let second = self.next_f32();
-        box_muller2_f32(first, second)[0]
+        self.normal2_f32()[0]
     }
 
     /// Two standard normals, `[cos, sin]` halves, from two `f32` draws.
     pub fn normal2_f32(&mut self) -> [f32; 2] {
-        let first = self.next_f32();
-        let second = self.next_f32();
-        box_muller2_f32(first, second)
+        let (first, second) = (self.next_f32(), self.next_f32());
+        let mut d = [0.0; 2 * PAIRS];
+        d[..2].copy_from_slice(&[first, second]);
+        let z = pairs_f32(&d);
+        [z[0], z[1]]
     }
 
     /// Fill with standard normals. Pair `j` is elements `2j` and `2j + 1`, cos half first,
@@ -153,10 +154,7 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f64(draws);
-            for (x, pair) in chunk.chunks_mut(2).zip(draws.as_chunks::<2>().0) {
-                let z = box_muller2(pair[0], pair[1]);
-                x.copy_from_slice(&z[..x.len()]);
-            }
+            normals(draws, chunk, pairs_f64);
         }
     }
 
@@ -166,97 +164,31 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
-            for (x, pair) in chunk.chunks_mut(2).zip(draws.as_chunks::<2>().0) {
-                let z = box_muller2_f32(pair[0], pair[1]);
-                x.copy_from_slice(&z[..x.len()]);
-            }
+            normals(draws, chunk, pairs_f32);
         }
     }
 }
 
-// The logarithm and square root come from the system libm with `std`, which is several times
-// faster than the portable `libm` crate, and from that crate without. Both are accurate to an
-// ulp or so, and the ports agree on normals to that, not bit for bit.
-#[cfg(feature = "std")]
-mod math {
-    pub fn sqrt(x: f64) -> f64 {
-        x.sqrt()
+/// Convert the uniforms `draws` (twice the pair count) to `out.len()` normals, `N / 2` pairs
+/// at a time. The last group is padded with zeros, which are harmless uniforms.
+fn normals<T: Copy + Default, const N: usize>(
+    draws: &[T],
+    out: &mut [T],
+    pairs: impl Fn(&[T; N]) -> [T; N],
+) {
+    let whole = out.len() / N * N;
+    let (head, rest) = out.split_at_mut(whole);
+    for (d, o) in draws
+        .as_chunks::<N>()
+        .0
+        .iter()
+        .zip(head.as_chunks_mut::<N>().0)
+    {
+        *o = pairs(d);
     }
-    pub fn ln(x: f64) -> f64 {
-        x.ln()
+    if !rest.is_empty() {
+        let mut d = [T::default(); N];
+        d[..draws.len() - whole].copy_from_slice(&draws[whole..]);
+        rest.copy_from_slice(&pairs(&d)[..rest.len()]);
     }
-    pub fn sqrtf(x: f32) -> f32 {
-        x.sqrt()
-    }
-    pub fn lnf(x: f32) -> f32 {
-        x.ln()
-    }
-}
-
-#[cfg(not(feature = "std"))]
-mod math {
-    pub use libm::{sqrt, sqrtf};
-    pub fn ln(x: f64) -> f64 {
-        libm::log(x)
-    }
-    pub fn lnf(x: f32) -> f32 {
-        libm::logf(x)
-    }
-}
-
-const fn taylor<const N: usize>(first: usize) -> [f64; N] {
-    // Coefficients (-1)^k / (first + 2k)!, rounded once from the exact fraction.
-    let mut out = [0.0; N];
-    let mut k = 0;
-    while k < N {
-        let mut fact = 1.0;
-        let mut i = 2;
-        while i <= first + 2 * k {
-            fact *= i as f64;
-            i += 1;
-        }
-        out[k] = if k % 2 == 0 { 1.0 / fact } else { -1.0 / fact };
-        k += 1;
-    }
-    out
-}
-
-// Taylor series on [0, pi/4]: the first omitted term is below 1e-19.
-const SIN: [f64; 9] = taylor(1);
-const COS: [f64; 9] = taylor(0);
-
-/// `(sin, cos)` of `2 pi b` for `b` in `[0, 1)`. The angle needs no range reduction: `4b`
-/// splits exactly into a quadrant and a fraction of a quarter turn, which the identity
-/// `sin(pi/2 - x) = cos(x)` folds into the first octant. A float `2 pi b` would be off by up
-/// to `2 pi b 2^-53`, so this is also the more accurate way.
-#[inline(always)]
-fn sin_cos_2pi(b: f64) -> (f64, f64) {
-    let t = 4.0 * b;
-    let q = t as u32;
-    let f = t - f64::from(q);
-    let flip = f > 0.5;
-    let x = if flip { 1.0 - f } else { f } * core::f64::consts::FRAC_PI_2;
-    let x2 = x * x;
-    let horner = |c: &[f64; 9]| c.iter().rev().fold(0.0, |acc, &k| acc * x2 + k);
-    let (s, c) = (x * horner(&SIN), horner(&COS));
-    let (s, c) = if flip { (c, s) } else { (s, c) };
-    match q & 3 {
-        0 => (s, c),
-        1 => (c, -s),
-        2 => (-s, -c),
-        _ => (-c, s),
-    }
-}
-
-fn box_muller2(first: f64, second: f64) -> [f64; 2] {
-    let r = math::sqrt(-2.0 * math::ln(1.0 - first));
-    let (s, c) = sin_cos_2pi(second);
-    [r * c, r * s]
-}
-
-fn box_muller2_f32(first: f32, second: f32) -> [f32; 2] {
-    let r = math::sqrtf(-2.0 * math::lnf(1.0 - first));
-    // The angle goes through f64, as the device core does on a host.
-    let (s, c) = sin_cos_2pi(f64::from(second));
-    [r * c as f32, r * s as f32]
 }
