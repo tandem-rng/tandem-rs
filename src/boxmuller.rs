@@ -152,7 +152,7 @@ pub(crate) fn block_f64(u: &[f64], z: &mut [f64]) {
 /// The pair loop unrolled by `U` pairs. The body is then several independent chains, which the
 /// vectoriser keeps in flight together so that it loads each constant once for all of them.
 // `2 * U` is not a usable const argument of `as_chunks` on stable.
-#[allow(clippy::chunks_exact_to_as_chunks)]
+#[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 #[inline(always)]
 fn unrolled<T: Copy, const U: usize>(u: &[T], z: &mut [T], pair: fn(T, T) -> [T; 2]) {
     let m = u.len() / 2;
