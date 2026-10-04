@@ -106,9 +106,9 @@ cargo test
 generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, and CI fails
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
 against reference stream dumps in `tests/data`, complex fills included.
-`tests/derived.rs` compares bounded integers, bounded fills and normals with the cross-check values of
-`tandem-c`, which it generates from the `tandem-cuda` core (`tools/gen_derived.py` converts
-them), and the fills with their definitions.
+`tests/derived.rs` compares bounded integers, bounded fills and normals with the cross-check
+values of `tandem-c`, which it generates from the `tandem-cuda` core (`tools/gen_derived.py`
+converts them), and the fills with their definitions.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.
