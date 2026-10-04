@@ -107,10 +107,18 @@ fn fills_are_scalar_draws() {
 fn normals_have_unit_moments() {
     // Mean 0 and variance 1 to within 5 standard errors of 2^20 draws.
     let mut z = vec![0.0; 1 << 20];
+    let mut y = vec![0.0f32; 1 << 20];
     Tandem::new(1).fill_normal_f64(&mut z);
+    Tandem::new(1).fill_normal_f32(&mut y);
+    let y: Vec<f64> = y.iter().map(|&x| f64::from(x)).collect();
     let n = z.len() as f64;
-    let mean = z.iter().sum::<f64>() / n;
-    let var = z.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
-    assert!(mean.abs() < 5.0 / n.sqrt(), "mean {mean}");
-    assert!((var - 1.0).abs() < 5.0 * (2.0 / n).sqrt(), "variance {var}");
+    for (name, z) in [("f64", z), ("f32", y)] {
+        let mean = z.iter().sum::<f64>() / n;
+        let var = z.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+        assert!(mean.abs() < 5.0 / n.sqrt(), "{name} mean {mean}");
+        assert!(
+            (var - 1.0).abs() < 5.0 * (2.0 / n).sqrt(),
+            "{name} variance {var}"
+        );
+    }
 }
