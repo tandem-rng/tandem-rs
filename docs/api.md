@@ -1,8 +1,50 @@
-# tandem-rs notes
+# API
 
-Detail moved out of the README. Sections follow the README headings.
+```rust
+use tandem_rng::Tandem;
 
-## What it provides
+let mut rng = Tandem::new(42);                 // 128-bit seed, default K
+let x = rng.next_f64();
+let mut words = vec![0u32; 1 << 20];
+rng.fill_u32(&mut words);
+let i = rng.below_u32(10);                     // uniform in 0..10, Lemire
+let z = rng.normal_f64();                      // Box-Muller from two f64 draws
+let e = rng.exponential_f64();                 // -ln(1 - u) from one f64 draw
+let worker = rng.split(7);                     // by index, from the key alone
+let kids: Vec<Tandem> = rng.fork(4).collect(); // from the current block, parent moves on
+```
+
+```rust
+use rand::{Rng, SeedableRng};
+use rand_distr::StandardNormal;
+
+let mut rng = Tandem::seed_from_u64(42);       // the same generator as Tandem::new(42)
+let z: f64 = rng.sample(StandardNormal);
+```
+
+- `Tandem`: a `Copy` generator, 128-bit key, 64-bit bit position, chunk length `K`.
+- Every specification type: `bool`, 8 to 128-bit unsigned integers, `f32`, `f64`, binary16
+  bit patterns, `char`, complex pairs such as `next_c64`. Scalar draws and `fill_*`.
+- `at_u32`, `at_u64`, `at_f32`, `at_f64` for random access without advancing.
+- `split`, `fork`, `sub`, `key`, `position`, `chunk_length`.
+- `below_u32`, `below_u64`, `fill_below_u32`, `fill_below_u64`. A fill cut anywhere equals the
+  whole fill.
+- `normal_f64`, `normal_f32`, `normal2_f64`, `normal2_f32`, `fill_normal_f64`,
+  `fill_normal_f32`. With `std` they are bit identical to tandem-c.
+- `exponential_f64`, `exponential_f32`, `fill_exponential_f64`, `fill_exponential_f32`.
+  With `std` they are bit identical to tandem-c and tandem-cuda.
+- `rand_core::TryRng` and `SeedableRng`, so `Tandem` drives every `rand` distribution.
+- `rayon`: `par_fill_u32`, `par_fill_u64`, `par_fill_f32`, `par_fill_f64`, `par_fill_below_u32`,
+  `par_fill_below_u64`, `par_fill_normal_f64`, `par_fill_normal_f32`. Each equals its serial fill.
+- `serde`: `Serialize` and `Deserialize` through the transport form.
+- `simd-intrinsics`: NEON, SSE2 and run-time AVX2 row steps. It admits `unsafe` in one module.
+  Set `TANDEM_NO_AVX2` to turn the AVX2 path off.
+- `wgpu`: `gpu::GpuFill` fills `u32` words on any GPU wgpu drives. It advances the generator as
+  the CPU fill does, so CPU and GPU draws mix on one stream.
+- Parallel use: element `i` of a fill is draw `i`, so any decomposition reproduces a serial run.
+  See [Appendix B](https://github.com/tandem-rng/spec/blob/main/SPEC.md#appendix-b-parallel-decomposition-non-normative).
+
+## Details
 
 - `no_std` and `#![forbid(unsafe_code)]`. The default `std` feature only adds fused
   multiply-adds and the square root from the standard library. Two dependencies: `rand_core`
@@ -52,7 +94,7 @@ Detail moved out of the README. Sections follow the README headings.
   the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
   `let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());` reads the transport form.
 
-### GPU
+## GPU
 
 ```toml
 tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs", features = ["wgpu"] }
@@ -77,68 +119,3 @@ let span = gpu.fill_words(&mut rng, &out, 1 << 24);     // stays on the GPU
 generator exactly as the CPU fill does. `src/tandem.wgsl` is the shader. WGSL has no 64-bit
 integers, so it builds the 32x32 to 64-bit product from 16-bit halves, which is exact. The
 feature pulls in `std`.
-
-## Tests
-
-`tests/vectors.rs` checks every vector of the specification. `tests/vectors_data/mod.rs` is
-generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`.
-`tests/streams.rs` compares long fills, scalar draws and random access against reference
-stream dumps in `tests/data`, complex fills included. `tests/derived.rs` compares bounded
-integers, bounded fills and normals with the cross-check values of `tandem-c`, which it
-generates from the `tandem-cuda` core (`tools/gen_derived.py` converts them), and the fills
-with their definitions. With `std` the normals compare bit for bit. Without it they compare
-within the tolerance of Appendix A.
-
-`tests/normal_bits.rs` (with `std`) hashes 1e6 pairs of `f64` and `f32` normals from five
-positions and compares with the hash in tandem-c's `tests/test_normal_bits.c`.
-`cargo run --release --example dump_normals | shasum -a 256` writes the same bytes as
-tandem-c's `tools/dump_normals.c`.
-
-`tests/derived.rs` also compares the exponential fills and scalar draws with tandem-c's
-`tests/cross_exponential.h`, bit for bit with `std`, at five positions, and checks fills cut
-anywhere, a length of 0, and the Exp(1) moments to the fourth order and a Kolmogorov-Smirnov
-statistic on 1e7 `f64` and 1e7 `f32` samples. `tests/exponential_bits.rs` (with `std`) hashes
-1e6 `f64` and 1e6 `f32` exponentials from five positions and compares with the hash in
-tandem-c's `tests/test_exponential_bits.c`. `cargo run --release --example dump_exponentials
-| shasum -a 256` writes the same bytes as tandem-c's `tools/dump_exponentials.c`.
-
-`tests/rand_core.rs` checks the trait implementations against the inherent API.
-`tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
-at offsets and lengths that cut rows and tasks, and checks the final position.
-`tests/serde.rs` (with `--features serde`) round-trips a generator through JSON.
-`tests/intrinsics.rs` (with `--features simd-intrinsics`) compares every fill with the
-stream built from the scalar `block`, at offsets and lengths that cut rows and chunks.
-`tests/gpu.rs` (with `--features wgpu`) compares GPU fills with the CPU fills over keys, chunk
-lengths, positions and lengths, and with the dumps. It skips without an adapter.
-
-## Speed
-
-The README AVX2 column and the SSE2 column come from one session, except that the exponential
-and `Exp1` rows come from a later one. The `Exp1` rows draw one sample per element from
-`rand`'s default generator. Without AVX2 and FMA the x86_64 target has no fused instruction, so
-each `mul_add` of the exponentials and normals is a library call, which is why those columns
-fall behind `Exp1`. The default and SSE2 columns of the EPYC table use no AVX2.
-
-The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
-4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one
-routine serves all widths. By default floats convert in a second pass over the row while it
-is in L1. The seed rounds run on a local that swaps its halves by value, since `mem::swap`
-of the fields made LLVM split the vectors into 64-bit halves.
-
-`simd-intrinsics` maps each 16-byte block to floats before the store: `ucvtf` with 24 or
-53 fraction bits on AArch64, the signed convert for `f32` and an exact two-part
-exponent trick for `f64` on SSE2, which has no 64-bit convert. It also forms both halves of
-the 32x32 to 64-bit products from two widening multiplies (`umull` and `umull2` with two
-unzips, or two `pmuludq`). On AArch64 LLVM already uses `umull` for the high half, so
-integers do not gain there. On SSE2 the portable multiply costs four `pmuludq` per
-product.
-
-The struct is `repr(C)`: with the default layout the compiler pairs the loads of the position
-and the cached row index into one 16-byte load right after the 8-byte store of the position,
-which defeats store forwarding and doubles the cost of a scalar draw.
-
-GPU fill: the minimum is of seven runs after a half-second warm-up, with the GPU idle on the
-A100 host. The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100
-the fill with direct 16-byte stores runs near the card's bandwidth once the buffer is large
-enough to hide the submit and clock ramp. The A100 host had no system Vulkan loader: a
-conda-forge `libvulkan-loader` on `LD_LIBRARY_PATH` with the driver's own ICD was enough.
