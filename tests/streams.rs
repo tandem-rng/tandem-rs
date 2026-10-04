@@ -173,17 +173,22 @@ fn bool() {
     check(name, &want, Tandem::fill_bool, Tandem::next_bool, None);
 }
 
+fn pairs<T: Copy>(flat: &[T]) -> Vec<[T; 2]> {
+    flat.as_chunks::<2>().0.to_vec()
+}
+
 #[test]
-fn complex_pairs_are_the_real_fill() {
-    // The spec defines complex draws as alternating components of the real fill of length 2n.
-    let want = values(&dump("seed42_K32_c64.bin"), f64::from_le_bytes);
-    let mut got = vec![0.0; want.len()];
-    Tandem::new(42).fill_f64(&mut got);
-    assert_eq!(got, want);
-    let want = values(&dump("seed42_K32_c32.bin"), f32::from_le_bytes);
-    let mut got = vec![0.0; want.len()];
-    Tandem::new(42).fill_f32(&mut got);
-    assert_eq!(got, want);
+fn c64() {
+    let name = "seed42_K32_c64.bin";
+    let want = pairs(&values(&dump(name), f64::from_le_bytes));
+    check(name, &want, Tandem::fill_c64, Tandem::next_c64, None);
+}
+
+#[test]
+fn c32() {
+    let name = "seed42_K32_c32.bin";
+    let want = pairs(&values(&dump(name), f32::from_le_bytes));
+    check(name, &want, Tandem::fill_c32, Tandem::next_c32, None);
 }
 
 #[test]

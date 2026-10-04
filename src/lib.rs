@@ -622,6 +622,14 @@ impl Tandem {
     pub fn next_f16_bits(&mut self) -> u16 {
         to_f16_bits(self.next_u16())
     }
+    /// A complex `f32` as `[re, im]`: two `f32` draws, real part first.
+    pub fn next_c32(&mut self) -> [f32; 2] {
+        [self.next_f32(), self.next_f32()]
+    }
+    /// A complex `f64` as `[re, im]`: two `f64` draws, real part first.
+    pub fn next_c64(&mut self) -> [f64; 2] {
+        [self.next_f64(), self.next_f64()]
+    }
     /// A uniform Unicode scalar value, from 64 stream bits.
     pub fn next_char(&mut self) -> char {
         to_char(self.next_u64())
@@ -692,6 +700,14 @@ impl Tandem {
     /// Fill with uniform `f64` in `[0, 1)`.
     pub fn fill_f64(&mut self, out: &mut [f64]) {
         self.fill(out)
+    }
+    /// Fill with complex `f32` as `[re, im]`: the `f32` fill of length `2 * out.len()`.
+    pub fn fill_c32(&mut self, out: &mut [[f32; 2]]) {
+        self.fill_f32(out.as_flattened_mut())
+    }
+    /// Fill with complex `f64` as `[re, im]`: the `f64` fill of length `2 * out.len()`.
+    pub fn fill_c64(&mut self, out: &mut [[f64; 2]]) {
+        self.fill_f64(out.as_flattened_mut())
     }
     /// Fill with binary16 bit patterns of uniform draws in `[0, 1)`.
     pub fn fill_f16_bits(&mut self, out: &mut [u16]) {

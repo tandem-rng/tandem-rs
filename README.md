@@ -11,8 +11,8 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`)
   plus a cache of the current 1024-bit row. It is `Copy`.
 - Every type in the specification: `bool`, 8 to 128-bit unsigned integers, `f32`, `f64`,
-  binary16 as bit patterns, `char`. Random access without advancing. Split by index, fork at
-  the current block, sub by purpose.
+  binary16 as bit patterns, `char`, complex `f32` and `f64` as `[re, im]` pairs. Random
+  access without advancing. Split by index, fork at the current block, sub by purpose.
 - Implements `rand_core::TryRng` (and so `Rng`) and `SeedableRng`, so it drives every `rand`
   distribution.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
@@ -29,6 +29,7 @@ let mut rng = Tandem::new(42);                 // 128-bit seed, default K
 let x = rng.next_f64();
 let mut words = vec![0u32; 1 << 20];
 rng.fill_u32(&mut words);
+let z = rng.next_c64();                        // [re, im], two f64 draws
 let worker = rng.split(7);                     // by index, from the key alone
 let kids: Vec<Tandem> = rng.fork(4).collect(); // from the current block, parent moves on
 let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());
@@ -83,7 +84,7 @@ cargo test
 `tests/vectors.rs` checks every vector of the specification. `tests/vectors_data/mod.rs` is
 generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`, and CI fails
 when it is out of date. `tests/streams.rs` compares long fills, scalar draws and random access
-against reference stream dumps in `tests/data`.
+against reference stream dumps in `tests/data`, complex fills included.
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/intrinsics.rs` (with `--features simd-intrinsics`) compares every fill with the
 stream built from the scalar `block`, at offsets and lengths that cut rows and chunks.
