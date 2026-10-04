@@ -174,9 +174,13 @@ mod avx2 {
         h: [__m256i; 4],
     }
 
-    /// Whether the CPU runs the 256-bit path.
+    /// Whether the CPU runs the 256-bit path. Setting `TANDEM_NO_AVX2` turns it off, which
+    /// keeps the 128-bit path under test on a CPU that has AVX2.
     pub(crate) fn available() -> bool {
-        std::is_x86_feature_detected!("avx2")
+        static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            std::env::var_os("TANDEM_NO_AVX2").is_none() && std::is_x86_feature_detected!("avx2")
+        })
     }
 
     /// The loop of `run_rows` on 256-bit registers.

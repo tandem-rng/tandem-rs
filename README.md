@@ -45,7 +45,8 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - The `simd-intrinsics` feature spells the widening multiply and the float row stores with
   NEON or SSE2 intrinsics. With `std` on x86_64 it also runs the row step, the seeding and
   the transpose on 256-bit AVX2 registers when the CPU has them, chosen at run time, so the
-  eight lanes of a group fill one register per state word. It admits `unsafe` in one private
+  eight lanes of a group fill one register per state word. Setting `TANDEM_NO_AVX2` turns
+  the AVX2 path off. It admits `unsafe` in one private
   module, so the crate root then says `deny(unsafe_code)` instead of `forbid`. The stream
   is the same.
 
@@ -147,13 +148,16 @@ second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s
 | `fill_f64` | 16.9 | 18.5 |
 | `next_f64` chain, ns per draw | 1.39 | 1.42 |
 
-| AMD EPYC 7702P | default, SSE2 | `simd-intrinsics`, AVX2 |
-|---|---|---|
-| `fill_u32` | 5.2 | 11.8 |
-| `fill_u64` | 5.2 | 11.7 |
-| `fill_f32` | 4.6 | 8.9 |
-| `fill_f64` | 3.5 | 7.1 |
-| `next_f64` chain, ns per draw | 4.99 | 4.01 |
+| AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
+|---|---|---|---|
+| `fill_u32` | 5.6 | 5.8 | 11.4 |
+| `fill_u64` | 5.7 | 5.7 | 11.8 |
+| `fill_f32` | 5.0 | 5.2 | 9.0 |
+| `fill_f64` | 3.8 | 4.4 | 7.2 |
+| `next_f64` chain, ns per draw | 4.96 | 4.94 | 3.96 |
+
+The SSE2 column is the same build as the AVX2 column with `TANDEM_NO_AVX2` set. All three
+columns come from one session.
 
 With the `rayon` feature, `cargo run --release --features rayon --example bench_par` times the
 serial and parallel fills of 2^25 elements on all 14 threads of an Apple M4, minimum of seven

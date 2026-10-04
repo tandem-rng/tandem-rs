@@ -28,6 +28,16 @@ jobs:
       - run: cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
       - run: cargo test --features "${{ matrix.features }}"
       - run: cargo test --release --features "${{ matrix.features }}"
+  sse2:
+    name: SSE2 path on an AVX2 runner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: grep -q avx2 /proc/cpuinfo
+      - run: cargo test --features simd-intrinsics
+        env:
+          TANDEM_NO_AVX2: "1"
   no-std:
     name: no default features
     runs-on: ubuntu-latest
