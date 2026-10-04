@@ -41,6 +41,8 @@ let z: f64 = rng.sample(StandardNormal);
 
 ## What it provides
 
+Design, test and speed detail: [docs/notes.md](docs/notes.md).
+
 - `Tandem`: a `Copy` generator, 128-bit key, 64-bit bit position, chunk length `K`.
 - Every specification type: `bool`, 8 to 128-bit unsigned integers, `f32`, `f64`, binary16
   bit patterns, `char`, complex pairs such as `next_c64`. Scalar draws and `fill_*`.
