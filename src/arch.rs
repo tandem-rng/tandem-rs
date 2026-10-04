@@ -155,3 +155,193 @@ mod imp {
 }
 
 pub(crate) use imp::*;
+
+/// The eight lanes of a group in 256-bit registers, one register per state word, selected at
+/// run time. The portable code keeps the same state in two 128-bit halves.
+#[cfg(all(feature = "std", target_arch = "x86_64"))]
+mod avx2 {
+    use core::arch::x86_64::*;
+
+    use wide::u32x4;
+
+    use crate::{Rows, Tandem};
+
+    const CLOCK_WEYL: i32 = crate::CLOCK_WEYL as i32;
+
+    #[derive(Clone, Copy)]
+    pub(super) struct Avx2Lanes {
+        o: [__m256i; 4],
+        h: [__m256i; 4],
+    }
+
+    /// Whether the CPU runs the 256-bit path.
+    pub(crate) fn available() -> bool {
+        std::is_x86_feature_detected!("avx2")
+    }
+
+    /// The loop of `run_rows` on 256-bit registers.
+    ///
+    /// # Panics
+    ///
+    /// Without AVX2, which `available` reports.
+    pub(crate) fn run_rows_avx2<S: FnMut(&[u32x4; 8])>(
+        rng: &mut Tandem,
+        row: u64,
+        nrows: u64,
+        sink: Option<S>,
+    ) {
+        assert!(available(), "AVX2 is required");
+        // SAFETY: AVX2 was just checked.
+        unsafe { run_avx2(rng, row, nrows, sink) }
+    }
+
+    // Every helper of `Avx2Lanes` is `inline(always)`, so it lands in this function, which
+    // has the feature.
+    #[target_feature(enable = "avx2")]
+    unsafe fn run_avx2<S: FnMut(&[u32x4; 8])>(
+        rng: &mut Tandem,
+        row: u64,
+        nrows: u64,
+        sink: Option<S>,
+    ) {
+        rng.run_rows_with::<Avx2Lanes, S>(row, nrows, sink)
+    }
+
+    // The methods are safe to call only from `run_rows_avx2`, the one place that builds an
+    // `Avx2Lanes`, and so always run with AVX2 enabled.
+    impl Avx2Lanes {
+        /// Low and high words of the eight 32x32 to 64-bit products: `pmuludq` takes the even
+        /// lanes, so the odd ones go through a shift.
+        #[inline(always)]
+        fn mul_wide(a: __m256i, b: __m256i) -> (__m256i, __m256i) {
+            // SAFETY: AVX2 is enabled, see above.
+            unsafe {
+                let even = _mm256_mul_epu32(a, b);
+                let odd = _mm256_mul_epu32(_mm256_srli_epi64::<32>(a), _mm256_srli_epi64::<32>(b));
+                (
+                    _mm256_blend_epi32::<0b1010_1010>(even, _mm256_slli_epi64::<32>(odd)),
+                    _mm256_blend_epi32::<0b1010_1010>(_mm256_srli_epi64::<32>(even), odd),
+                )
+            }
+        }
+
+        #[inline(always)]
+        fn rotl<const L: i32, const R: i32>(x: __m256i) -> __m256i {
+            // SAFETY: AVX2 is enabled, see above.
+            unsafe { _mm256_or_si256(_mm256_slli_epi32::<L>(x), _mm256_srli_epi32::<R>(x)) }
+        }
+    }
+
+    impl Rows for Avx2Lanes {
+        #[inline(always)]
+        fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Self {
+            // SAFETY: AVX2 is enabled, and the arrays hold 32 bytes each.
+            unsafe {
+                let ld = |w: &[u32; 8]| _mm256_loadu_si256(w.as_ptr().cast());
+                Avx2Lanes {
+                    o: o.each_ref().map(ld),
+                    h: h.each_ref().map(ld),
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]) {
+            // SAFETY: AVX2 is enabled, and the arrays hold 32 bytes each.
+            unsafe {
+                for w in 0..4 {
+                    _mm256_storeu_si256(o[w].as_mut_ptr().cast(), self.o[w]);
+                    _mm256_storeu_si256(h[w].as_mut_ptr().cast(), self.h[w]);
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn step(&mut self) {
+            let (o, h) = (&mut self.o, &mut self.h);
+            // SAFETY: AVX2 is enabled, see above.
+            unsafe {
+                let one = _mm256_set1_epi32(1);
+                let (lo0, hi0) = Self::mul_wide(o[0], _mm256_or_si256(h[0], one));
+                let (lo1, hi1) = Self::mul_wide(o[2], _mm256_or_si256(h[1], one));
+                let n0 = _mm256_xor_si256(_mm256_xor_si256(o[1], hi1), lo1);
+                let n1 = _mm256_xor_si256(Self::rotl::<16, 16>(lo1), h[2]);
+                let n2 = _mm256_xor_si256(_mm256_xor_si256(o[3], hi0), lo0);
+                let n3 = _mm256_xor_si256(Self::rotl::<16, 16>(lo0), h[3]);
+                h[0] = _mm256_xor_si256(h[0], Self::rotl::<7, 25>(h[1]));
+                h[1] = _mm256_xor_si256(h[1], Self::rotl::<13, 19>(h[2]));
+                h[2] = _mm256_xor_si256(h[2], Self::rotl::<22, 10>(h[3]));
+                h[3] = _mm256_xor_si256(h[3], Self::rotl::<3, 29>(h[0]));
+                h[0] = _mm256_xor_si256(_mm256_add_epi32(h[0], _mm256_set1_epi32(CLOCK_WEYL)), n0);
+                *o = [n0, n1, n2, n3];
+            }
+        }
+
+        #[inline(always)]
+        fn seed(&mut self, key: &[u32; 4], g: u64) {
+            let c0 = 8 * g;
+            let lo = c0 as u32;
+            // SAFETY: AVX2 is enabled, see above.
+            unsafe {
+                let mut q = Avx2Lanes {
+                    o: [
+                        _mm256_add_epi32(
+                            _mm256_set1_epi32(lo as i32),
+                            _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7),
+                        ),
+                        _mm256_set1_epi32((c0 >> 32) as i32),
+                        _mm256_set1_epi32(crate::DOMAIN_STREAM as i32),
+                        _mm256_set1_epi32(crate::AUX_STREAM as i32),
+                    ],
+                    h: key.map(|w| _mm256_set1_epi32(w as i32)),
+                };
+                for rc in crate::RC {
+                    q.step();
+                    q.o[0] = _mm256_xor_si256(q.o[0], _mm256_set1_epi32(rc as i32));
+                    q = Avx2Lanes { o: q.h, h: q.o };
+                }
+                *self = q;
+            }
+        }
+
+        /// The row's eight blocks: the 4x8 words transposed within each 128-bit half, so the
+        /// low halves hold blocks 0 to 3 and the high halves blocks 4 to 7.
+        #[inline(always)]
+        fn blocks(&self) -> [u32x4; 8] {
+            // SAFETY: AVX2 is enabled, see above.
+            unsafe {
+                let o = &self.o;
+                let t0 = _mm256_unpacklo_epi32(o[0], o[1]);
+                let t1 = _mm256_unpackhi_epi32(o[0], o[1]);
+                let t2 = _mm256_unpacklo_epi32(o[2], o[3]);
+                let t3 = _mm256_unpackhi_epi32(o[2], o[3]);
+                let u = [
+                    _mm256_unpacklo_epi64(t0, t2),
+                    _mm256_unpackhi_epi64(t0, t2),
+                    _mm256_unpacklo_epi64(t1, t3),
+                    _mm256_unpackhi_epi64(t1, t3),
+                ];
+                let half = |v: __m256i, hi: bool| -> u32x4 {
+                    if hi {
+                        _mm256_extracti128_si256::<1>(v).into()
+                    } else {
+                        _mm256_castsi256_si128(v).into()
+                    }
+                };
+                [
+                    half(u[0], false),
+                    half(u[1], false),
+                    half(u[2], false),
+                    half(u[3], false),
+                    half(u[0], true),
+                    half(u[1], true),
+                    half(u[2], true),
+                    half(u[3], true),
+                ]
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "std", target_arch = "x86_64"))]
+pub(crate) use avx2::{available as avx2_available, run_rows_avx2};

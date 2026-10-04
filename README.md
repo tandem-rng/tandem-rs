@@ -42,8 +42,11 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The crate
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
   transport form (key, position, `K`). Deserializing rejects an invalid `K`.
 - The `simd-intrinsics` feature spells the widening multiply and the float row stores with
-  NEON or SSE2 intrinsics. It admits `unsafe` in one private module, so the crate root
-  then says `deny(unsafe_code)` instead of `forbid`. The stream is the same.
+  NEON or SSE2 intrinsics. With `std` on x86_64 it also runs the row step, the seeding and
+  the transpose on 256-bit AVX2 registers when the CPU has them, chosen at run time, so the
+  eight lanes of a group fill one register per state word. It admits `unsafe` in one private
+  module, so the crate root then says `deny(unsafe_code)` instead of `forbid`. The stream
+  is the same.
 
 ## Use
 
@@ -143,13 +146,13 @@ second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s
 | `fill_f64` | 16.9 | 18.5 |
 | `next_f64` chain, ns per draw | 1.39 | 1.42 |
 
-| AMD EPYC 7702P, SSE2 baseline | default | `simd-intrinsics` |
+| AMD EPYC 7702P | default, SSE2 | `simd-intrinsics`, AVX2 |
 |---|---|---|
-| `fill_u32` | 5.2 | 5.7 |
-| `fill_u64` | 5.2 | 5.7 |
-| `fill_f32` | 4.6 | 4.8 |
-| `fill_f64` | 3.5 | 4.4 |
-| `next_f64` chain, ns per draw | 4.99 | 4.88 |
+| `fill_u32` | 5.2 | 11.8 |
+| `fill_u64` | 5.2 | 11.7 |
+| `fill_f32` | 4.6 | 8.9 |
+| `fill_f64` | 3.5 | 7.1 |
+| `next_f64` chain, ns per draw | 4.99 | 4.01 |
 
 With the `rayon` feature, `cargo run --release --features rayon --example bench_par` times the
 serial and parallel fills of 2^25 elements on all 14 threads of an Apple M4, minimum of seven

@@ -36,8 +36,8 @@
 //! length.
 //!
 //! The `simd-intrinsics` feature spells the widening multiply and the float row stores with
-//! NEON or SSE2 intrinsics. It admits `unsafe` in one private module and leaves the stream
-//! as it is.
+//! NEON or SSE2 intrinsics, and with `std` on x86_64 runs the rows on AVX2 registers when the
+//! CPU has them. It admits `unsafe` in one private module and leaves the stream as it is.
 
 #![no_std]
 // The `simd-intrinsics` feature admits `unsafe` in `arch` alone.
@@ -234,6 +234,39 @@ impl Quad {
             q = Quad { o: q.h, h: q.o };
         }
         *self = q;
+    }
+}
+
+/// What `run_rows` needs of the eight lane states of a group, so the same loop runs on the
+/// portable vectors and on the AVX2 registers.
+pub(crate) trait Rows {
+    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Self;
+    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]);
+    fn step(&mut self);
+    fn seed(&mut self, key: &[u32; 4], g: u64);
+    fn blocks(&self) -> [u32x4; 8];
+}
+
+impl Rows for Lanes {
+    #[inline(always)]
+    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Lanes {
+        Lanes::load(o, h)
+    }
+    #[inline(always)]
+    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]) {
+        Lanes::save(self, o, h)
+    }
+    #[inline(always)]
+    fn step(&mut self) {
+        Lanes::step(self)
+    }
+    #[inline(always)]
+    fn seed(&mut self, key: &[u32; 4], g: u64) {
+        Lanes::seed(self, key, g)
+    }
+    #[inline(always)]
+    fn blocks(&self) -> [u32x4; 8] {
+        Lanes::blocks(self)
     }
 }
 
@@ -511,7 +544,16 @@ impl Tandem {
     /// inside the cached group costs one step per row; any other jump reseeds the group.
     /// Afterwards the cache holds the last row produced.
     #[inline(never)]
-    fn run_rows<S: FnMut(&[u32x4; 8])>(
+    fn run_rows<S: FnMut(&[u32x4; 8])>(&mut self, row: u64, nrows: u64, sink: Option<S>) {
+        #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+        if arch::avx2_available() {
+            return arch::run_rows_avx2(self, row, nrows, sink);
+        }
+        self.run_rows_with::<Lanes, S>(row, nrows, sink)
+    }
+
+    #[inline(always)]
+    fn run_rows_with<L: Rows, S: FnMut(&[u32x4; 8])>(
         &mut self,
         mut row: u64,
         mut nrows: u64,
@@ -523,7 +565,7 @@ impl Tandem {
         let k = u64::from(self.k);
         let shift = self.k.trailing_zeros();
         let mask = k - 1;
-        let mut lanes = Lanes::load(&self.o, &self.h);
+        let mut lanes = L::load(&self.o, &self.h);
         let mut at = self.row;
         let mut live = self.cached;
         while nrows > 0 {
