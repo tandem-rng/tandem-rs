@@ -165,10 +165,10 @@ pub(crate) const PAIRS: usize = 16;
 
 /// Uniforms `[a0, b0, a1, b1, ...]` to normals `[cos0, sin0, cos1, sin1, ...]`.
 #[inline(always)]
-pub(crate) fn pairs_f64(d: &[f64; 2 * PAIRS]) -> [f64; 2 * PAIRS] {
+pub(crate) fn pairs_f64<const N: usize>(d: &[f64; N]) -> [f64; N] {
     let c = &core::hint::black_box(CONSTS64);
-    let mut out = [0.0; 2 * PAIRS];
-    for j in 0..PAIRS {
+    let mut out = [0.0; N];
+    for j in 0..N / 2 {
         let r = sqrt(-2.0 * ln(1.0 - d[2 * j], c));
         let (s, co) = sin_cos_2pi(d[2 * j + 1], c);
         out[2 * j] = r * co;
@@ -280,10 +280,10 @@ fn sin_cos_2pi32(b: f32, c: &Consts32) -> (f32, f32) {
 
 /// The `f32` form of [`pairs_f64`].
 #[inline(always)]
-pub(crate) fn pairs_f32(d: &[f32; 2 * PAIRS]) -> [f32; 2 * PAIRS] {
+pub(crate) fn pairs_f32<const N: usize>(d: &[f32; N]) -> [f32; N] {
     let c = &core::hint::black_box(CONSTS32);
-    let mut out = [0.0; 2 * PAIRS];
-    for j in 0..PAIRS {
+    let mut out = [0.0; N];
+    for j in 0..N / 2 {
         let r = sqrt32(-2.0 * ln32(1.0 - d[2 * j], c));
         let (s, co) = sin_cos_2pi32(d[2 * j + 1], c);
         out[2 * j] = r * co;

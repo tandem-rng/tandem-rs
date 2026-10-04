@@ -123,9 +123,7 @@ impl Tandem {
     /// Two standard normals, `[cos, sin]` halves, from two `f64` draws.
     pub fn normal2_f64(&mut self) -> [f64; 2] {
         let (first, second) = (self.next_f64(), self.next_f64());
-        let mut d = [0.0; 2 * PAIRS];
-        d[..2].copy_from_slice(&[first, second]);
-        let z = pairs_f64(&d);
+        let z = pairs_f64::<2>(&[first, second]);
         [z[0], z[1]]
     }
 
@@ -139,9 +137,7 @@ impl Tandem {
     /// Two standard normals, `[cos, sin]` halves, from two `f32` draws.
     pub fn normal2_f32(&mut self) -> [f32; 2] {
         let (first, second) = (self.next_f32(), self.next_f32());
-        let mut d = [0.0; 2 * PAIRS];
-        d[..2].copy_from_slice(&[first, second]);
-        let z = pairs_f32(&d);
+        let z = pairs_f32::<2>(&[first, second]);
         [z[0], z[1]]
     }
 
@@ -154,7 +150,7 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f64(draws);
-            normals(draws, chunk, pairs_f64);
+            normals(draws, chunk, pairs_f64::<{ 2 * PAIRS }>);
         }
     }
 
@@ -164,7 +160,7 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
-            normals(draws, chunk, pairs_f32);
+            normals(draws, chunk, pairs_f32::<{ 2 * PAIRS }>);
         }
     }
 }
