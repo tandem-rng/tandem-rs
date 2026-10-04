@@ -1,5 +1,5 @@
 //! Bounded integers, normals and exponentials agree with the shared device core, and fills agree with
-//! scalar draws. The fixed values come from tools/gen_derived.cpp.
+//! scalar draws. The fixed values come from tools/gen_derived.py.
 
 // The reference values carry 17 digits as the device core prints them.
 #[allow(clippy::excessive_precision)]
@@ -16,6 +16,24 @@ fn start() -> Tandem {
     let mut rng = Tandem::new(42);
     rng.next_bool();
     rng
+}
+
+/// Bit equality with `std`, whose fused multiply-add is tandem-c's. Without it the plain
+/// `a * b + c` differs in the last bits, within the tolerance of Appendix A.
+fn same_f64(got: f64, want: f64) -> bool {
+    if cfg!(feature = "std") {
+        got.to_bits() == want.to_bits()
+    } else {
+        (got - want).abs() <= 1e-12 * want.abs() + 1e-15
+    }
+}
+
+fn same_f32(got: f32, want: f32) -> bool {
+    if cfg!(feature = "std") {
+        got.to_bits() == want.to_bits()
+    } else {
+        (got - want).abs() <= 16.0 * f32::EPSILON * want.abs() + 1e-6
+    }
 }
 
 #[test]
@@ -45,46 +63,34 @@ fn bound_zero_returns_zero_after_one_draw() {
 
 #[test]
 fn normals_match_the_device_core() {
-    // libm and the C library differ in the last bits of log, cos and sin.
     let (want, end) = NORMAL_F64;
     let mut rng = start();
     let got: Vec<f64> = (0..want.len() / 2)
         .flat_map(|_| rng.normal2_f64())
         .collect();
     for (i, (got, want)) in got.iter().zip(want).enumerate() {
-        assert!(
-            (got - want).abs() <= 1e-12 * want.abs().max(1.0),
-            "f64 {i}: {got} against {want}"
-        );
+        assert!(same_f64(*got, *want), "f64 {i}: {got} against {want}");
     }
     assert_eq!(rng.position(), end);
     let mut rng = start();
     let mut got = vec![0.0; want.len()];
     rng.fill_normal_f64(&mut got);
-    assert!(
-        got.iter()
-            .zip(want)
-            .all(|(g, w)| (g - w).abs() <= 1e-12 * w.abs().max(1.0))
-    );
+    assert!(got.iter().zip(want).all(|(g, w)| same_f64(*g, *w)));
     assert_eq!(rng.position(), end);
 
     let (want, end) = NORMAL_F32;
-    let tol = |w: &f32| 8.0 * f32::EPSILON * w.abs() + 1e-6;
     let mut rng = start();
     let got: Vec<f32> = (0..want.len() / 2)
         .flat_map(|_| rng.normal2_f32())
         .collect();
     for (i, (got, want)) in got.iter().zip(want).enumerate() {
-        assert!(
-            (got - want).abs() <= tol(want),
-            "f32 {i}: {got} against {want}"
-        );
+        assert!(same_f32(*got, *want), "f32 {i}: {got} against {want}");
     }
     assert_eq!(rng.position(), end);
     let mut rng = start();
     let mut got = vec![0.0; want.len()];
     rng.fill_normal_f32(&mut got);
-    assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol(w)));
+    assert!(got.iter().zip(want).all(|(g, w)| same_f32(*g, *w)));
     assert_eq!(rng.position(), end);
 }
 
@@ -312,17 +318,6 @@ fn bounded_fills_cut_anywhere_equal_the_whole() {
     }
 }
 
-/// Bit equality with `std`, whose fused multiply-add is tandem-c's. Without it the plain
-/// `a * b + c` differs in the last bits.
-fn exp_close<T: Into<f64> + Copy>(got: T, want: T) -> bool {
-    let (g, w) = (got.into(), want.into());
-    if cfg!(feature = "std") {
-        g.to_bits() == w.to_bits()
-    } else {
-        (g - w).abs() <= 1e-5 * w.abs()
-    }
-}
-
 #[test]
 fn exponentials_match_tandem_c() {
     for (at, want, end) in EXPONENTIAL_F64 {
@@ -332,13 +327,13 @@ fn exponentials_match_tandem_c() {
         let mut got = vec![0.0; want.len()];
         rng.fill_exponential_f64(&mut got);
         assert!(
-            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            got.iter().zip(*want).all(|(g, w)| same_f64(*g, *w)),
             "f64 fill at {at}"
         );
         assert_eq!(rng.position(), *end, "f64 fill position at {at}");
         let got: Vec<f64> = want.iter().map(|_| scalar.exponential_f64()).collect();
         assert!(
-            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            got.iter().zip(*want).all(|(g, w)| same_f64(*g, *w)),
             "f64 scalar at {at}"
         );
         assert_eq!(scalar, rng);
@@ -350,13 +345,13 @@ fn exponentials_match_tandem_c() {
         let mut got = vec![0.0; want.len()];
         rng.fill_exponential_f32(&mut got);
         assert!(
-            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            got.iter().zip(*want).all(|(g, w)| same_f32(*g, *w)),
             "f32 fill at {at}"
         );
         assert_eq!(rng.position(), *end, "f32 fill position at {at}");
         let got: Vec<f32> = want.iter().map(|_| scalar.exponential_f32()).collect();
         assert!(
-            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            got.iter().zip(*want).all(|(g, w)| same_f32(*g, *w)),
             "f32 scalar at {at}"
         );
         assert_eq!(scalar, rng);
