@@ -5,7 +5,7 @@
 #[allow(clippy::excessive_precision)]
 mod derived_data;
 
-use derived_data::{BELOW_U32, BELOW_U64, NORMAL_F64};
+use derived_data::{BELOW_U32, BELOW_U64, FILL_BELOW_U32, FILL_BELOW_U64, NORMAL_F32, NORMAL_F64};
 use tandem_rng::Tandem;
 
 /// The fixtures start after one bit draw, which leaves the position unaligned.
@@ -53,6 +53,46 @@ fn normal_matches_the_device_core() {
         );
     }
     assert_eq!(rng.position(), end);
+}
+
+#[test]
+fn normal_f32_matches_the_device_core() {
+    // logf and cosf differ between libraries by a few ulps.
+    let (want, end) = NORMAL_F32;
+    let mut rng = start();
+    for (i, want) in want.iter().enumerate() {
+        let got = rng.normal_f32();
+        let tol = 8.0 * f32::EPSILON * want.abs() + 1e-6;
+        assert!(
+            (got - want).abs() <= tol,
+            "element {i}: {got} against {want}"
+        );
+    }
+    assert_eq!(rng.position(), end);
+}
+
+#[test]
+fn fill_below_matches_the_device_core() {
+    for (n, want, end) in FILL_BELOW_U32 {
+        let mut rng = start();
+        let mut got = vec![0; want.len()];
+        rng.fill_below_u32(&mut got, *n);
+        assert_eq!(
+            (&got[..], rng.position()),
+            (*want, *end),
+            "fill_below_u32({n})"
+        );
+    }
+    for (n, want, end) in FILL_BELOW_U64 {
+        let mut rng = start();
+        let mut got = vec![0; want.len()];
+        rng.fill_below_u64(&mut got, *n);
+        assert_eq!(
+            (&got[..], rng.position()),
+            (*want, *end),
+            "fill_below_u64({n})"
+        );
+    }
 }
 
 #[test]
