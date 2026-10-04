@@ -75,3 +75,17 @@ jobs:
           python3 tools/gen_vectors.py ../tandem-spec/vectors.json > tests/vectors_data/mod.rs
           rustfmt --edition 2024 tests/vectors_data/mod.rs
           git diff --exit-code tests/vectors_data/mod.rs
+  derived:
+    name: derived data is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: |
+          git clone --depth 1 https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
+          c++ -std=c++17 -I ../tandem-cuda/include tools/gen_derived.cpp -o gen_derived
+          ./gen_derived > tests/derived_data/mod.rs
+          rustfmt --edition 2024 tests/derived_data/mod.rs
+          git diff --exit-code tests/derived_data/mod.rs

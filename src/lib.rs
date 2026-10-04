@@ -23,6 +23,9 @@
 //!
 //! The `wgpu` feature adds [`gpu::GpuFill`], the same fill run as a compute shader.
 //!
+//! [`Tandem::below_u32`], [`Tandem::normal_f64`] and their fills are not part of the
+//! specification. They follow the shared device core so every port agrees.
+//!
 //! The `serde` feature serializes a [`Tandem`] as its transport form: key, position and chunk
 //! length.
 //!
@@ -41,6 +44,7 @@ extern crate std;
 
 #[cfg(feature = "simd-intrinsics")]
 mod arch;
+mod derived;
 #[cfg(feature = "wgpu")]
 pub mod gpu;
 mod rand;
