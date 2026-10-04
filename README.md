@@ -76,6 +76,12 @@ let z: f64 = rng.sample(StandardNormal);
 `SeedableRng::from_seed` reads its 16 bytes as a little-endian 128-bit seed and whitens it as
 the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
 
+Parallel use: element `i` of a fill is draw `i`, so ranks, threads or devices that start at the
+position of their first element, or draw from `split(task)`, reproduce a serial run for any
+decomposition, as
+[Appendix B](https://github.com/tandem-rng/spec/blob/main/SPEC.md#appendix-b-parallel-decomposition-non-normative)
+of the specification shows.
+
 ## GPU
 
 ```toml
