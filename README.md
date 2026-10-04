@@ -139,6 +139,18 @@ second column), minimum of seven runs of 2^24 elements after a warm-up, in GiB/s
 | `fill_f64` | 3.5 | 4.4 |
 | `next_f64` chain, ns per draw | 4.99 | 4.88 |
 
+With the `rayon` feature, `cargo run --release --features rayon --example bench_par` times the
+serial and parallel fills of 2^25 elements on all 14 threads of an Apple M4, minimum of seven
+runs, in GiB/s of output:
+
+| Apple M4, 14 threads | serial | parallel |
+|---|---|---|
+| `fill_u32` | 20.6 | 118 |
+| `fill_f64` | 15.9 | 109 |
+| `fill_below_u32`, n = 1000 | 6.1 | 47 |
+| `fill_below_u64`, n = 1000 | 11.4 | 58 |
+| `fill_normal_f64` | 0.94 | 9.7 |
+
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
 4x4 transpose by interleaves, and every integer fill writes the same byte stream, so one
 routine serves all widths. By default floats convert in a second pass over the row while it

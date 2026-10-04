@@ -47,3 +47,7 @@ all-features = true
 [[example]]
 name = "bench_gpu"
 required-features = ["wgpu"]
+
+[[example]]
+name = "bench_par"
+required-features = ["rayon"]

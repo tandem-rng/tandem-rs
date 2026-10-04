@@ -185,6 +185,8 @@ fn box_muller2(first: f64, second: f64) -> [f64; 2] {
 #[inline]
 fn box_muller2_f32(first: f32, second: f32) -> [f32; 2] {
     let r = libm::sqrtf(-2.0 * libm::logf(1.0 - first));
-    let angle = TAU as f32 * second;
-    [r * libm::cosf(angle), r * libm::sinf(angle)]
+    // A float angle is off by up to 2 pi b 2^-24, so take it in f64 and round the results,
+    // as the device core does on a host.
+    let angle = TAU * f64::from(second);
+    [r * libm::cos(angle) as f32, r * libm::sin(angle) as f32]
 }
