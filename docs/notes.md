@@ -54,7 +54,7 @@ Detail moved out of the README. Sections follow the README headings.
 ### GPU
 
 ```toml
-tandem-rng = { version = "0.1", features = ["wgpu"] }
+tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs", features = ["wgpu"] }
 ```
 
 ```rust

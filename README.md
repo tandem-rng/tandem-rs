@@ -9,7 +9,7 @@ specification defines, bit for bit. It is fast on CPUs and GPUs alike.
 ## Install
 
 ```toml
-tandem-rng = "0.1"
+tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs" }
 # optional features: std (default), rayon, serde, simd-intrinsics, wgpu
 ```
 
