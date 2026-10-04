@@ -26,8 +26,9 @@
 //! The `rayon` feature adds `par_fill_u32`, `par_fill_u64`, `par_fill_f32` and `par_fill_f64`:
 //! the same fills, split at row boundaries across threads.
 //!
-//! [`Tandem::below_u32`], [`Tandem::normal_f64`] and their fills are not part of the
-//! specification. They follow the shared device core so every port agrees.
+//! [`Tandem::below_u32`] and [`Tandem::normal_f64`] and their fills are not part of the
+//! specification. They follow the shared device core so every port agrees. The exponentials
+//! [`Tandem::exponential_f64`] and [`Tandem::fill_exponential_f64`] are in its Appendix A.
 //!
 //! The default `std` feature adds fused multiply-adds and the square root of the normals from
 //! the standard library. Without it the crate is `no_std`.

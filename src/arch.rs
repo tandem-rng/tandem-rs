@@ -190,7 +190,7 @@ mod avx2 {
         available() && std::is_x86_feature_detected!("fma")
     }
 
-    /// The normal loop compiled with FMA, so `mul_add` is one instruction and the loop
+    /// The normal and exponential loops compiled with FMA, so `mul_add` is one instruction and the loop
     /// vectorises. The bits are the same as without.
     pub(crate) fn block_f64_fma(u: &[f64], z: &mut [f64]) {
         assert!(fma_available(), "AVX2 and FMA are required");
@@ -202,6 +202,28 @@ mod avx2 {
         assert!(fma_available(), "AVX2 and FMA are required");
         // SAFETY: the check above is the requirement of the target features.
         unsafe { block_f32_avx2_fma(u, z) }
+    }
+
+    pub(crate) fn exponential_block_f64_fma(z: &mut [f64]) {
+        assert!(fma_available(), "AVX2 and FMA are required");
+        // SAFETY: the check above is the requirement of the target features.
+        unsafe { exponential_block_f64_avx2_fma(z) }
+    }
+
+    pub(crate) fn exponential_block_f32_fma(z: &mut [f32]) {
+        assert!(fma_available(), "AVX2 and FMA are required");
+        // SAFETY: the check above is the requirement of the target features.
+        unsafe { exponential_block_f32_avx2_fma(z) }
+    }
+
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn exponential_block_f64_avx2_fma(z: &mut [f64]) {
+        crate::boxmuller::exponential_block_f64_body(z)
+    }
+
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn exponential_block_f32_avx2_fma(z: &mut [f32]) {
+        crate::boxmuller::exponential_block_f32_body(z)
     }
 
     #[target_feature(enable = "avx2,fma")]
@@ -380,5 +402,6 @@ mod avx2 {
 
 #[cfg(all(feature = "std", target_arch = "x86_64"))]
 pub(crate) use avx2::{
-    available as avx2_available, block_f32_fma, block_f64_fma, fma_available, run_rows_avx2,
+    available as avx2_available, block_f32_fma, block_f64_fma, exponential_block_f32_fma,
+    exponential_block_f64_fma, fma_available, run_rows_avx2,
 };

@@ -1,6 +1,9 @@
 //! Box-Muller on whole blocks of pairs, in plain Rust that LLVM vectorises. The shape and the
 //! coefficients are tandem-c's, so the ports compute the same arithmetic.
 //!
+//! The exponentials `-ln(1 - a)` share its logarithm and run as one in-place pass over the
+//! uniforms.
+//!
 //! A pair `(a, b)` gives `r = sqrt(-2 ln(1 - a))` and the normals `r cos(2 pi b)` and
 //! `r sin(2 pi b)`, cos first.
 //!
@@ -106,22 +109,34 @@ fn horner<const C: usize>(x: f64, c: &[f64; C]) -> f64 {
     acc
 }
 
-/// `sqrt(-2 ln(1 - a))` for `a` in `[0, 1)`.
+/// `-2 ln x` for `x` in `(0, 1]`.
 #[inline(always)]
-fn radius(a: f64) -> f64 {
+fn neg2_log(x: f64) -> f64 {
     // Adding the bits of `sqrt(1/2)` to the exponent field makes the mantissa roll over into
     // it exactly when the mantissa is at least `sqrt(1/2)`, which picks `k`.
-    let ix = (1.0 - a).to_bits().wrapping_add(0x0009_5f62_0000_0000);
+    let ix = x.to_bits().wrapping_add(0x0009_5f62_0000_0000);
     let nk = (1023 - (ix >> 52) as i64) as f64; // -k
     let mant = f64::from_bits((ix & 0x000f_ffff_ffff_ffff) + 0x3fe6_a09e_0000_0000);
     let s = (mant - 1.0) / (mant + 1.0);
     let p = horner(s * s, &LN_SERIES);
-    // -2 ln(1 - a) = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
-    sqrt(fma(
+    // -2 ln x = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
+    fma(
         nk,
         3.816429394731813e-10,
         fma(nk, 1.3862943607382476, (s * -4.0) * p),
-    ))
+    )
+}
+
+/// `sqrt(-2 ln(1 - a))` for `a` in `[0, 1)`.
+#[inline(always)]
+fn radius(a: f64) -> f64 {
+    sqrt(neg2_log(1.0 - a))
+}
+
+/// `-ln(1 - a)` for `a` in `[0, 1)`. Halving is exact.
+#[inline(always)]
+pub(crate) fn exponential_f64(a: f64) -> f64 {
+    0.5 * neg2_log(1.0 - a)
 }
 
 /// `(cos, sin)` of `2 pi b` for `b` in `[0, 1)`.
@@ -189,10 +204,10 @@ fn unrolled<T: Copy, const U: usize>(u: &[T], z: &mut [T], pair: fn(T, T) -> [T;
     }
 }
 
-/// `sqrt(-2 ln(1 - a))` in `f32`.
+/// `-2 ln x` in `f32`.
 #[inline(always)]
-pub(crate) fn radius32(a: f32) -> f32 {
-    let ix = (1.0 - a).to_bits().wrapping_add(0x004a_fb0d);
+fn neg2_log32(x: f32) -> f32 {
+    let ix = x.to_bits().wrapping_add(0x004a_fb0d);
     let nk = (127 - (ix >> 23) as i32) as f32;
     let mant = f32::from_bits((ix & 0x007f_ffff) + 0x3f35_04f3);
     let s = (mant - 1.0) / (mant + 1.0);
@@ -202,11 +217,19 @@ pub(crate) fn radius32(a: f32) -> f32 {
         fmaf(zz, fmaf(zz, 0.14275366, 0.20000061), 0.33333334),
         1.0,
     );
-    sqrtf(fmaf(
-        nk,
-        2.857_213_5e-6,
-        fmaf(nk, 1.386_291_5, (s * -4.0) * p),
-    ))
+    fmaf(nk, 2.857_213_5e-6, fmaf(nk, 1.386_291_5, (s * -4.0) * p))
+}
+
+/// `sqrt(-2 ln(1 - a))` in `f32`.
+#[inline(always)]
+pub(crate) fn radius32(a: f32) -> f32 {
+    sqrtf(neg2_log32(1.0 - a))
+}
+
+/// `-ln(1 - a)` in `f32`.
+#[inline(always)]
+pub(crate) fn exponential_f32(a: f32) -> f32 {
+    0.5 * neg2_log32(1.0 - a)
 }
 
 /// `(cos, sin)` of `2 pi b` in `f32`.
@@ -258,6 +281,41 @@ pub(crate) fn block_f32(u: &[f32], z: &mut [f32]) {
 #[inline(always)]
 pub(crate) fn block_f32_body(u: &[f32], z: &mut [f32]) {
     unrolled::<f32, 1>(u, z, pair_f32)
+}
+
+/// `-ln(1 - u)` in place over uniforms. Out of line, so that the vectoriser sees one loop
+/// with an unknown trip count, as in [`block_f64`].
+#[inline(never)]
+pub(crate) fn exponential_block_f64(z: &mut [f64]) {
+    #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+    if crate::arch::fma_available() {
+        return crate::arch::exponential_block_f64_fma(z);
+    }
+    exponential_block_f64_body(z)
+}
+
+#[inline(always)]
+pub(crate) fn exponential_block_f64_body(z: &mut [f64]) {
+    for x in z {
+        *x = exponential_f64(*x);
+    }
+}
+
+/// The `f32` form of [`exponential_block_f64`].
+#[inline(never)]
+pub(crate) fn exponential_block_f32(z: &mut [f32]) {
+    #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+    if crate::arch::fma_available() {
+        return crate::arch::exponential_block_f32_fma(z);
+    }
+    exponential_block_f32_body(z)
+}
+
+#[inline(always)]
+pub(crate) fn exponential_block_f32_body(z: &mut [f32]) {
+    for x in z {
+        *x = exponential_f32(*x);
+    }
 }
 
 #[cfg(test)]

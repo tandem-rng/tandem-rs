@@ -1,11 +1,14 @@
-//! Bounded integers and normals agree with the shared device core, and fills agree with
+//! Bounded integers, normals and exponentials agree with the shared device core, and fills agree with
 //! scalar draws. The fixed values come from tools/gen_derived.cpp.
 
 // The reference values carry 17 digits as the device core prints them.
 #[allow(clippy::excessive_precision)]
 mod derived_data;
 
-use derived_data::{BELOW_U32, BELOW_U64, FILL_BELOW_U32, FILL_BELOW_U64, NORMAL_F32, NORMAL_F64};
+use derived_data::{
+    BELOW_U32, BELOW_U64, EXPONENTIAL_F32, EXPONENTIAL_F64, FILL_BELOW_U32, FILL_BELOW_U64,
+    NORMAL_F32, NORMAL_F64,
+};
 use tandem_rng::Tandem;
 
 /// The fixtures start after one bit draw, which leaves the position unaligned.
@@ -307,4 +310,140 @@ fn bounded_fills_cut_anywhere_equal_the_whole() {
         assert_eq!(a, b, "u64 cut at {cut}");
         assert_eq!(whole, parts);
     }
+}
+
+/// Bit equality with `std`, whose fused multiply-add is tandem-c's. Without it the plain
+/// `a * b + c` differs in the last bits.
+fn exp_close<T: Into<f64> + Copy>(got: T, want: T) -> bool {
+    let (g, w) = (got.into(), want.into());
+    if cfg!(feature = "std") {
+        g.to_bits() == w.to_bits()
+    } else {
+        (g - w).abs() <= 1e-5 * w.abs()
+    }
+}
+
+#[test]
+fn exponentials_match_tandem_c() {
+    for (at, want, end) in EXPONENTIAL_F64 {
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
+        let mut scalar = rng;
+        let mut got = vec![0.0; want.len()];
+        rng.fill_exponential_f64(&mut got);
+        assert!(
+            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            "f64 fill at {at}"
+        );
+        assert_eq!(rng.position(), *end, "f64 fill position at {at}");
+        let got: Vec<f64> = want.iter().map(|_| scalar.exponential_f64()).collect();
+        assert!(
+            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            "f64 scalar at {at}"
+        );
+        assert_eq!(scalar, rng);
+    }
+    for (at, want, end) in EXPONENTIAL_F32 {
+        let mut rng = Tandem::new(42);
+        rng.set_position(*at);
+        let mut scalar = rng;
+        let mut got = vec![0.0; want.len()];
+        rng.fill_exponential_f32(&mut got);
+        assert!(
+            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            "f32 fill at {at}"
+        );
+        assert_eq!(rng.position(), *end, "f32 fill position at {at}");
+        let got: Vec<f32> = want.iter().map(|_| scalar.exponential_f32()).collect();
+        assert!(
+            got.iter().zip(*want).all(|(g, w)| exp_close(*g, *w)),
+            "f32 scalar at {at}"
+        );
+        assert_eq!(scalar, rng);
+    }
+}
+
+#[test]
+fn exponential_fills_cut_anywhere_equal_the_whole() {
+    // Lengths and cuts cross the 1024-element pass of the fill, from an unaligned start. A
+    // fill is the scalar draws and ends at the same position. `n = 0` moves nothing.
+    for n in [0, 1, 2, 3, 1023, 1024, 1025, 3000] {
+        let mut scalar = start();
+        let want: Vec<f64> = (0..n).map(|_| scalar.exponential_f64()).collect();
+        let mut scalar32 = start();
+        let want32: Vec<f32> = (0..n).map(|_| scalar32.exponential_f32()).collect();
+        for cut in [0, 1, 7, 1000, 1024, 2049] {
+            let cut = cut.min(n);
+            let (mut rng, mut got) = (start(), vec![0.0; n]);
+            let (head, tail) = got.split_at_mut(cut);
+            rng.fill_exponential_f64(head);
+            rng.fill_exponential_f64(tail);
+            assert_eq!(got, want, "f64 n={n} cut={cut}");
+            assert_eq!(rng, scalar, "f64 position n={n} cut={cut}");
+
+            let (mut rng, mut got) = (start(), vec![0.0; n]);
+            let (head, tail) = got.split_at_mut(cut);
+            rng.fill_exponential_f32(head);
+            rng.fill_exponential_f32(tail);
+            assert_eq!(got, want32, "f32 n={n} cut={cut}");
+            assert_eq!(rng, scalar32, "f32 position n={n} cut={cut}");
+        }
+    }
+    let mut rng = start();
+    rng.fill_exponential_f64(&mut []);
+    rng.fill_exponential_f32(&mut []);
+    assert_eq!(rng, start());
+}
+
+/// Moments to the fourth order and a Kolmogorov-Smirnov statistic of the Exp(1) law. The
+/// statistic is taken at the edges of 2^16 equal bins of the CDF, which never exceeds the
+/// supremum, so the usual critical value is conservative. The samples stream through a small
+/// buffer.
+fn check_exp1(name: &str, mut fill: impl FnMut(&mut [f64])) {
+    const N: usize = 10_000_000;
+    const BINS: usize = 1 << 16;
+    let (mut sums, mut bins, mut buf) = ([0.0f64; 4], vec![0u32; BINS], vec![0.0; 1 << 14]);
+    for _ in 0..N / buf.len() + 1 {
+        fill(&mut buf);
+        for &x in &buf {
+            let cdf = -(-x).exp_m1();
+            bins[((cdf * BINS as f64) as usize).min(BINS - 1)] += 1;
+            for (k, s) in sums.iter_mut().enumerate() {
+                *s += x.powi(k as i32 + 1);
+            }
+        }
+    }
+    let n = (N / buf.len() + 1) as f64 * buf.len() as f64;
+    // E X^k = k!, and the variance of X^k is (2k)! - (k!)^2.
+    for (k, (s, (fact, var))) in sums
+        .iter()
+        .zip([(1.0, 1.0), (2.0, 20.0), (6.0, 684.0), (24.0, 39744.0)])
+        .enumerate()
+    {
+        let (m, tol) = (s / n, 5.0 * (var / n).sqrt());
+        assert!((m - fact).abs() < tol, "{name} moment {}: {m}", k + 1);
+    }
+    let mut cum = 0.0;
+    let d = bins
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| {
+            cum += f64::from(b);
+            (cum / n - (i + 1) as f64 / BINS as f64).abs()
+        })
+        .fold(0.0, f64::max);
+    // P(sqrt(n) D > 1.95) is 0.001.
+    assert!(d * n.sqrt() < 1.95, "{name} KS {}", d * n.sqrt());
+}
+
+#[test]
+fn exponentials_are_exp1() {
+    let mut rng = Tandem::new(1);
+    check_exp1("f64", |z| rng.fill_exponential_f64(z));
+    let mut rng = Tandem::new(2);
+    check_exp1("f32", |z| {
+        let mut y = vec![0.0f32; z.len()];
+        rng.fill_exponential_f32(&mut y);
+        z.iter_mut().zip(y).for_each(|(z, y)| *z = f64::from(y));
+    });
 }

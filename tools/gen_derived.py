@@ -29,9 +29,20 @@ def bounded(text, array, ty, start=False):
     return ",\n".join(rows)
 
 
+def exponential(text, array, ty):
+    # Entries are `{start, {values}, end_pos}`.
+    body = re.search(rf"{array}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
+    rows = []
+    for start, vals, end in re.findall(r"\{(\d+)ull,\s*\{([^}]*)\},\s*(\d+)u\}", body):
+        vals = [v.strip().removesuffix("f") for v in vals.split(",")]
+        rows.append(f"({start}, &[{', '.join(v + ty for v in vals)}], {end})")
+    return ",\n".join(rows)
+
+
 below = read("cross_below.h")
 fill_below = read("cross_fill_below.h")
 normal = read("cross_normal.h")
+exp = read("cross_exponential.h")
 doubles = re.search(r"CROSS_NORMAL\[[^\]]*\] = \{(.*?)\};", normal, re.S).group(1)
 end = re.search(r"CROSS_NORMAL_END_POS = (\d+)u", normal).group(1)
 floats = re.search(r"CROSS_NORMALF\[[^\]]*\] = \{(.*?)\};", normal, re.S).group(1).replace("f", "")
@@ -50,3 +61,7 @@ print(f"pub const NORMAL_F32: (&[f32], u64) = (&[{floats.strip()}], {endf});\n")
 print("/// `fill_below` cases: `(start position, bound, values, position after)`.")
 print(f"pub const FILL_BELOW_U32: &[(u64, u32, &[u32], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U32', 'u32', True)},\n];\n")
 print(f"pub const FILL_BELOW_U64: &[(u64, u64, &[u64], u64)] = &[\n{bounded(fill_below, 'CROSS_FILL_U64', 'u64', True)},\n];")
+
+print("\n/// `exponential` fills: `(start position, values, position after)`.")
+print(f"pub const EXPONENTIAL_F64: &[(u64, &[f64], u64)] = &[\n{exponential(exp, 'CROSS_EXPONENTIAL', 'f64')},\n];\n")
+print(f"pub const EXPONENTIAL_F32: &[(u64, &[f32], u64)] = &[\n{exponential(exp, 'CROSS_EXPONENTIALF', 'f32')},\n];")

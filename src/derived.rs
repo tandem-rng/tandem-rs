@@ -2,7 +2,10 @@
 //! shared device core (`tandem-cuda`, `core.hpp`) so every port returns the same values.
 
 use crate::Tandem;
-use crate::boxmuller::{block_f32, block_f64, pair_f32, pair_f64};
+use crate::boxmuller::{
+    block_f32, block_f64, exponential_block_f32, exponential_block_f64, exponential_f32,
+    exponential_f64, pair_f32, pair_f64,
+};
 
 /// Reserved purposes of the fallback generators of the bounded fills.
 const PURPOSE_BELOW32: u64 = 0x0042_4c57_3332;
@@ -11,6 +14,9 @@ const PURPOSE_BELOW64: u64 = 0x0042_4c57_3634;
 /// Draws per block of a normal fill: a multiple of the 128 `f64` a row holds, so the bulk
 /// fill keeps whole rows.
 const BLOCK: usize = 4096;
+
+/// Elements per pass of an exponential fill: the uniforms and their map stay in L1.
+const EXP_BLOCK: usize = 1024;
 
 impl Tandem {
     /// A uniform integer in `0..n` by Lemire's multiply and reject on `u32` draws.
@@ -162,6 +168,36 @@ impl Tandem {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
             normals(draws, chunk, block_f32, pair_f32);
+        }
+    }
+
+    /// An exponential `-ln(1 - u)` of rate 1 from one `f64` draw. It equals element 0 of
+    /// [`fill_exponential_f64`](Self::fill_exponential_f64).
+    pub fn exponential_f64(&mut self) -> f64 {
+        exponential_f64(self.next_f64())
+    }
+
+    /// The `f32` form of [`exponential_f64`](Self::exponential_f64), from one `f32` draw and
+    /// computed in `f32`. It matches tandem-c bit for bit.
+    pub fn exponential_f32(&mut self) -> f32 {
+        exponential_f32(self.next_f32())
+    }
+
+    /// Fill with exponentials of rate 1. Element `i` is `-ln(1 - u)` for draw `i` of the
+    /// `f64` fill, so a fill cut anywhere equals the whole and equals the scalar draws.
+    pub fn fill_exponential_f64(&mut self, out: &mut [f64]) {
+        for chunk in out.chunks_mut(EXP_BLOCK) {
+            self.fill_f64(chunk);
+            exponential_block_f64(chunk);
+        }
+    }
+
+    /// The `f32` form of [`fill_exponential_f64`](Self::fill_exponential_f64), from the `f32`
+    /// fill.
+    pub fn fill_exponential_f32(&mut self, out: &mut [f32]) {
+        for chunk in out.chunks_mut(EXP_BLOCK) {
+            self.fill_f32(chunk);
+            exponential_block_f32(chunk);
         }
     }
 }
