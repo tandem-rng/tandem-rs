@@ -36,17 +36,18 @@ The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FM
 exponentials and normals fall behind `Exp1`.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
-thread, 2^22 elements, in ns per element: the median of three sessions, each the minimum of
-seven runs. The inherent column loops over the scalar method, the `Distribution` column over
-`rng.sample`. Both inline into the caller, so they cost the same.
+thread, 2^22 elements, the median of three sessions, each the minimum of seven runs. The
+inherent column loops over the scalar method, the `Distribution` column over `rng.sample`,
+both in ns per element. Both inline into the caller, so they cost the same. The fill column is
+the matching fill in GiB/s of output.
 
-| Apple M4 | inherent | `Distribution` | fill |
+| Apple M4 | inherent, ns | `Distribution`, ns | fill, GiB/s |
 |---|---|---|---|
-| normal `f64` | 1.79 | 1.77 | 1.03 |
+| normal `f64` | 1.79 | 1.77 | 7.2 |
 | normal `f64`, `sample_iter` | | 1.80 | |
-| normal `f32` pairs | 2.30 | 2.28 | 0.82 |
-| exponential `f64` | 2.41 | 2.41 | 1.25 |
-| `Below(1000u32)` | 0.97 | 1.01 | 0.70 |
+| normal `f32` pairs | 2.30 | 2.28 | 4.5 |
+| exponential `f64` | 2.41 | 2.41 | 6.0 |
+| `Below(1000u32)` | 0.97 | 1.01 | 5.3 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4, in GiB/s of output.
