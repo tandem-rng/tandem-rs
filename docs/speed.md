@@ -11,15 +11,15 @@ comes from one session and is the median of three runs.
 
 | Apple M4 Pro | default | `simd-intrinsics` |
 |---|---|---|
-| `fill_u32` | 19.0 | 18.9 |
-| `fill_u64` | 19.0 | 18.8 |
-| `fill_f32` | 15.5 | 16.5 |
-| `fill_f64` | 15.5 | 16.5 |
-| `fill_exponential_f32` | 6.4 | 6.7 |
-| `fill_exponential_f64` | 6.0 | 6.0 |
-| `rand_distr::Exp1` `f32`, `StdRng` | 0.86 | 0.86 |
+| `fill_u32` | 19.5 | 19.4 |
+| `fill_u64` | 19.4 | 19.0 |
+| `fill_f32` | 16.7 | 16.6 |
+| `fill_f64` | 16.8 | 16.6 |
+| `fill_exponential_f32` | 6.5 | 6.4 |
+| `fill_exponential_f64` | 5.9 | 5.9 |
+| `rand_distr::Exp1` `f32`, `StdRng` | 0.85 | 0.86 |
 | `rand_distr::Exp1` `f64`, `StdRng` | 1.8 | 1.8 |
-| `next_f64` chain | 6.7 | 6.6 |
+| `next_f64` chain | 6.9 | 6.7 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
 |---|---|---|---|
@@ -36,30 +36,30 @@ The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FM
 exponentials and normals fall behind `Exp1`.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
-thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column loops over the scalar method, the `Distribution` column over
-`rng.sample`. Both inline into the caller, so they cost the same. The last column is the
+thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column
+loops over the scalar method, the `Distribution` column over `rng.sample`. Both inline into the caller, so they cost the same. The last column is the
 `rand_distr` distribution, or `random_range(0..1000)`, on `rand`'s default generator, in the
 same session. The `f32` normals of Tandem are pairs.
 
 | Apple M4 Pro | inherent | `Distribution` | fill | `rand_distr`, `StdRng` |
 |---|---|---|---|---|
-| normal `f64` | 4.27 | 4.26 | 7.47 | 1.87 |
-| normal `f64`, `sample_iter` | | 4.27 | | |
-| normal `f32` | 1.67 | 1.67 | 4.63 | 0.94 |
-| exponential `f64` | 3.15 | 3.15 | 6.00 | 1.80 |
-| `Below(1000u32)` | 3.99 | 3.99 | 5.42 | 2.08 |
+| normal `f64` | 4.32 | 4.38 | 7.37 | 1.85 |
+| normal `f64`, `sample_iter` | | 4.36 | | |
+| normal `f32` | 1.65 | 1.65 | 4.57 | 0.93 |
+| exponential `f64` | 3.13 | 3.16 | 5.91 | 1.78 |
+| `Below(1000u32)` | 4.07 | 4.08 | 5.37 | 2.06 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4 Pro, in GiB/s of output.
 
 | Apple M4 Pro, 14 threads | serial | parallel |
 |---|---|---|
-| `fill_u32` | 19.0 | 114 |
-| `fill_f64` | 15.5 | 115 |
-| `fill_below_u32`, n = 1000 | 5.4 | 46 |
-| `fill_below_u64`, n = 1000 | 10.9 | 56 |
-| `fill_normal_f64` | 7.3 | 72 |
-| `fill_normal_f32` | 4.6 | 46 |
+| `fill_u32` | 19.5 | 123 |
+| `fill_f64` | 16.8 | 110 |
+| `fill_below_u32`, n = 1000 | 5.4 | 47 |
+| `fill_below_u64`, n = 1000 | 8.4 | 55 |
+| `fill_normal_f64` | 7.5 | 75 |
+| `fill_normal_f32` | 4.6 | 45 |
 
 The AVX2 column and the SSE2 column come from one session, except that the exponential
 and `Exp1` rows come from a later one. The `Exp1` rows draw one sample per element from
@@ -74,7 +74,7 @@ GPU fill into device memory, `cargo run --release --features wgpu --example benc
 
 | | words | one fill per submit | 32 fills per submit |
 |---|---|---|---|
-| Apple M4 Pro, Metal | 2^26 | 165 GiB/s | 186 GiB/s |
+| Apple M4 Pro, Metal | 2^26 | 154 GiB/s | 178 GiB/s |
 | NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 775 GiB/s | 1040 GiB/s |
 | NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1100 GiB/s | 1215 GiB/s |
 
