@@ -18,7 +18,7 @@ in GiB/s.
 | `fill_exponential_f64` | 5.7 | 5.9 |
 | `rand_distr::Exp1` `f32`, `StdRng` | 0.88 | 0.88 |
 | `rand_distr::Exp1` `f64`, `StdRng` | 1.8 | 1.8 |
-| `next_f64` chain | 5.5 | 5.2 |
+| `next_f64` chain | 6.7 | 6.6 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
 |---|---|---|---|
@@ -30,7 +30,6 @@ in GiB/s.
 | `fill_exponential_f64` | 0.23 | 0.33 | 3.0 |
 | `rand_distr::Exp1` `f32`, `StdRng` | 0.64 | 0.65 | 0.66 |
 | `rand_distr::Exp1` `f64`, `StdRng` | 1.3 | 1.3 | 1.3 |
-| `next_f64` chain, ns per draw | 4.96 | 4.94 | 3.96 |
 
 The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FMA the
 exponentials and normals fall behind `Exp1`.
@@ -44,11 +43,11 @@ same session. The `f32` normals of Tandem are pairs.
 
 | Apple M4 | inherent | `Distribution` | fill | `rand_distr`, `StdRng` |
 |---|---|---|---|---|
-| normal `f64` | 3.5 | 3.5 | 6.0 | 1.5 |
-| normal `f64`, `sample_iter` | | 3.5 | | |
-| normal `f32` | 1.4 | 1.4 | 3.8 | 0.77 |
-| exponential `f64` | 2.6 | 2.6 | 4.9 | 1.5 |
-| `Below(1000u32)` | 3.3 | 3.3 | 4.4 | 1.7 |
+| normal `f64` | 4.25 | 4.21 | 7.42 | 1.86 |
+| normal `f64`, `sample_iter` | | 4.25 | | |
+| normal `f32` | 1.65 | 1.65 | 4.60 | 0.93 |
+| exponential `f64` | 3.13 | 3.14 | 5.98 | 1.78 |
+| `Below(1000u32)` | 3.97 | 3.92 | 5.39 | 2.07 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4, in GiB/s of output.
