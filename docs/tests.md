@@ -10,7 +10,7 @@ cargo test
 - Long fills, scalar draws and random access against the stream dumps in `tests/data`.
 - Bounded integers, normals and exponentials against the tandem-c cross fixtures, with the
   hashes of `tests/normal_bits.rs` and `tests/exponential_bits.rs`.
-- Feature tests: `--features rayon`, `serde`, `simd-intrinsics` and `wgpu`. The `wgpu` test skips
+- Feature tests: `--features rand`, `rayon`, `serde`, `simd-intrinsics` and `wgpu`. The `wgpu` test skips
   without an adapter.
 
 `tests/vectors.rs` checks every vector of the specification.
@@ -35,6 +35,10 @@ statistic on 1e7 `f64` and 1e7 `f32` samples. `tests/exponential_bits.rs` (with 
 tandem-c's `tests/test_exponential_bits.c`.
 
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
+`tests/distr.rs` (with `--features rand`) compares every distribution with its inherent draw
+on the tandem-c fixtures, `sample_iter` with the fills at lengths that cut their passes, and
+with `std` the two normal dump hashes. It also checks that a foreign generator gets normals of
+unit variance.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.
 `tests/serde.rs` (with `--features serde`) round-trips a generator through JSON.

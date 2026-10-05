@@ -14,7 +14,7 @@ Rust 1.89, edition 2024. The crate is `no_std` without the default `std` feature
 
 ```toml
 tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs" }
-# optional features: std (default), rayon, serde, simd-intrinsics, wgpu
+# optional features: std (default), rand, rayon, serde, simd-intrinsics, wgpu
 ```
 
 ```rust

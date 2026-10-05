@@ -17,7 +17,7 @@ let kids: Vec<Tandem> = rng.fork(4).collect(); // from the current block, parent
 ```
 
 ```rust
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_distr::StandardNormal;
 
 let mut rng = Tandem::seed_from_u64(42);       // the same generator as Tandem::new(42)
@@ -39,6 +39,8 @@ let z: f64 = rng.sample(StandardNormal);
 - `exponential_f64`, `exponential_f32`, `fill_exponential_f64`, `fill_exponential_f32`.
   With `std` they are bit identical to tandem-c and tandem-cuda.
 - `rand_core::TryRng` and `SeedableRng`, so `Tandem` drives every `rand` distribution.
+- `rand`: the distributions `StandardNormal`, `Exp1` and `Below` give the Tandem stream's
+  normals, exponentials and bounded integers. See [rand distributions](#rand-distributions).
 - `rayon`: `par_fill_u32`, `par_fill_u64`, `par_fill_f32`, `par_fill_f64`, `par_fill_below_u32`,
   `par_fill_below_u64`, `par_fill_normal_f64`, `par_fill_normal_f32`. Each equals its serial fill.
 - `serde`: `Serialize` and `Deserialize` through the transport form.
@@ -51,6 +53,47 @@ let z: f64 = rng.sample(StandardNormal);
 - `SeedableRng::from_seed` reads its 16 bytes as a little-endian 128-bit seed and whitens it as
   the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
   `let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());` reads the transport form.
+
+## rand distributions
+
+```toml
+tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs", features = ["rand"] }
+```
+
+```rust
+use rand::{RngExt, distr::Distribution};
+use tandem_rng::{Below, Exp1, StandardNormal, Tandem};
+
+let mut rng = Tandem::new(42);
+let z: f64 = rng.sample(StandardNormal);       // rng.normal_f64()
+let p: [f32; 2] = rng.sample(StandardNormal);  // rng.normal2_f32()
+let e: f32 = rng.sample(Exp1);                 // rng.exponential_f32()
+let i: u64 = rng.sample(Below(10u64));         // rng.below_u64(10)
+let zs: Vec<f64> = StandardNormal.sample_iter(&mut rng).take(1000).collect();
+```
+
+| Distribution | Type | Inherent draw |
+|---|---|---|
+| `StandardNormal` | `f64` | `normal_f64` |
+| `StandardNormal` | `f32` | `normal_f32` |
+| `StandardNormal` | `[f32; 2]` | `normal2_f32` |
+| `Exp1` | `f64`, `f32` | `exponential_f64`, `exponential_f32` |
+| `Below(n)` | `u32`, `u64` | `below_u32`, `below_u64` |
+
+- Each sample equals its inherent draw bit for bit and advances the generator the same way.
+  So `sample_iter` equals the fills of the normals and exponentials, with the `[f32; 2]`
+  pairs flattened for `fill_normal_f32`. It equals `fill_below_*` up to the first rejected
+  draw, because a fill retries on a fallback and the scalar draw on the stream.
+- The `f32` normals, the exponentials and `Below` use only the `u32` and `u64` draws, so they
+  are exact on any generator that yields the Tandem stream.
+- An `f64` normal that misses the ziggurat's fast path continues on a fallback keyed by the
+  generator's key and the draw's index (Appendix A), and `rand` passes a generic generator. So
+  `StandardNormal` checks the generator's type: a `Tandem` or a `&mut Tandem` takes the exact
+  path. Any other generator, a `dyn Rng` or a wrapper of a `Tandem` among them, gets the same
+  ziggurat with its misses continued on its own stream. Those values are standard normals, but
+  they leave the Tandem stream at the first miss.
+- The type check compares type ids with lifetimes erased (`typeid`) and folds to a constant.
+  It is the feature's one `unsafe` block. The feature keeps `no_std` and needs `rand` 0.10.
 
 ## GPU
 

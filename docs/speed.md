@@ -1,6 +1,7 @@
 # Speed
 
-`cargo run --release --example bench`, `bench_par` and `bench_gpu` produce the figures.
+`cargo run --release --example bench`, `bench_distr`, `bench_par` and `bench_gpu` produce the
+figures.
 
 ## CPU
 
@@ -33,6 +34,21 @@ in GiB/s.
 
 The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FMA the
 exponentials and normals fall behind `Exp1`.
+
+The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
+thread, minimum of seven runs of 2^22 elements, in ns per element. The inherent column loops
+over the scalar method, the `Distribution` column over `rng.sample`.
+
+| Apple M4 | inherent | `Distribution` | fill |
+|---|---|---|---|
+| normal `f64` | 2.33 | 2.33 | 1.00 |
+| normal `f64`, `sample_iter` | | 2.33 | |
+| normal `f32` pairs | 2.75 | 2.67 | 0.82 |
+| exponential `f64` | 3.72 | 2.75 | 1.25 |
+| `Below(1000u32)` | 1.87 | 1.37 | 0.70 |
+
+The generic `sample` compiles in the caller's crate and inlines the arithmetic. The inherent
+`exponential_f64` and `below_u32` stay calls into the crate, so they are slower.
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4, in GiB/s of output.
