@@ -18,7 +18,7 @@ in GiB/s.
 | `fill_exponential_f64` | 5.7 | 5.9 |
 | `rand_distr::Exp1` `f32`, `StdRng` | 0.88 | 0.88 |
 | `rand_distr::Exp1` `f64`, `StdRng` | 1.8 | 1.8 |
-| `next_f64` chain, ns per draw | 1.11 | 1.13 |
+| `next_f64` chain | 5.5 | 5.2 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
 |---|---|---|---|
@@ -36,18 +36,19 @@ The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FM
 exponentials and normals fall behind `Exp1`.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
-thread, 2^22 elements, the median of three sessions, each the minimum of seven runs. The
-inherent column loops over the scalar method, the `Distribution` column over `rng.sample`,
-both in ns per element. Both inline into the caller, so they cost the same. The fill column is
-the matching fill in GiB/s of output.
+thread, 2^22 elements, in GiB/s of output: the median of three sessions, each the minimum of
+seven runs. The inherent column loops over the scalar method, the `Distribution` column over
+`rng.sample`. Both inline into the caller, so they cost the same. The last column is the
+`rand_distr` distribution, or `random_range(0..1000)`, on `rand`'s default generator, in the
+same session. The `f32` normals of Tandem are pairs.
 
-| Apple M4 | inherent, ns | `Distribution`, ns | fill, GiB/s |
-|---|---|---|---|
-| normal `f64` | 1.79 | 1.77 | 7.2 |
-| normal `f64`, `sample_iter` | | 1.80 | |
-| normal `f32` pairs | 2.30 | 2.28 | 4.5 |
-| exponential `f64` | 2.41 | 2.41 | 6.0 |
-| `Below(1000u32)` | 0.97 | 1.01 | 5.3 |
+| Apple M4 | inherent | `Distribution` | fill | `rand_distr`, `StdRng` |
+|---|---|---|---|---|
+| normal `f64` | 3.5 | 3.5 | 6.0 | 1.5 |
+| normal `f64`, `sample_iter` | | 3.5 | | |
+| normal `f32` | 1.4 | 1.4 | 3.8 | 0.77 |
+| exponential `f64` | 2.6 | 2.6 | 4.9 | 1.5 |
+| `Below(1000u32)` | 3.3 | 3.3 | 4.4 | 1.7 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4, in GiB/s of output.
