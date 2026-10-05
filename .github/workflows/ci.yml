@@ -117,7 +117,8 @@ jobs:
         with:
           components: rustfmt
       - run: |
-          git clone --depth 1 https://github.com/tandem-rng/tandem-c ../tandem-c
+          git clone -q https://github.com/tandem-rng/tandem-c ../tandem-c
+          git -C ../tandem-c checkout -q 121db5902d6136c7e5258970c0160121af3ab1d0
           python3 tools/gen_derived.py ../tandem-c/tests > tests/derived_data/mod.rs
           rustfmt --edition 2024 tests/derived_data/mod.rs
           git diff --exit-code tests/derived_data/mod.rs
