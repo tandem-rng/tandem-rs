@@ -78,15 +78,13 @@ fn main() {
     for (label, gibs) in rows {
         println!("{label:<28} {gibs:8.2} GiB/s");
     }
-    let mut best_ns = f64::INFINITY;
-    for _ in 0..7 {
-        let t0 = Instant::now();
+    // A dependent chain of scalar draws, 8 bytes of output each.
+    let chain = best(N * 8, || {
         let mut acc = 0.0;
         for _ in 0..N {
             acc += rng.next_f64();
         }
         black_box(acc);
-        best_ns = best_ns.min(t0.elapsed().as_secs_f64() * 1e9 / N as f64);
-    }
-    println!("{:<28} {best_ns:8.2} ns per draw", "chain next_f64");
+    });
+    println!("{:<28} {chain:8.2} GiB/s", "chain next_f64");
 }
