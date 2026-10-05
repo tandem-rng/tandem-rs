@@ -24,28 +24,14 @@ impl Tandem {
     ///
     /// For `n == 0` the result is 0 after one draw, as the device core does.
     pub fn below_u32(&mut self, n: u32) -> u32 {
-        let mut m = u64::from(self.next_u32()) * u64::from(n);
-        if (m as u32) < n {
-            let t = n.wrapping_neg() % n;
-            while (m as u32) < t {
-                m = u64::from(self.next_u32()) * u64::from(n);
-            }
-        }
-        (m >> 32) as u32
+        below_u32(n, || self.next_u32())
     }
 
     /// A uniform integer in `0..n` by Lemire's multiply and reject on `u64` draws.
     ///
     /// For `n == 0` the result is 0 after one draw, as the device core does.
     pub fn below_u64(&mut self, n: u64) -> u64 {
-        let mut m = u128::from(self.next_u64()) * u128::from(n);
-        if (m as u64) < n {
-            let t = n.wrapping_neg() % n;
-            while (m as u64) < t {
-                m = u128::from(self.next_u64()) * u128::from(n);
-            }
-        }
-        (m >> 64) as u64
+        below_u64(n, || self.next_u64())
     }
 
     /// Fill with uniform integers in `0..n`. Element `i` takes draw `i` of the `u32` fill,
@@ -178,6 +164,31 @@ impl Tandem {
             exponential_block_f32(chunk);
         }
     }
+}
+
+/// Lemire's multiply and reject on the draws of `next`.
+#[inline]
+pub(crate) fn below_u32(n: u32, mut next: impl FnMut() -> u32) -> u32 {
+    let mut m = u64::from(next()) * u64::from(n);
+    if (m as u32) < n {
+        let t = n.wrapping_neg() % n;
+        while (m as u32) < t {
+            m = u64::from(next()) * u64::from(n);
+        }
+    }
+    (m >> 32) as u32
+}
+
+#[inline]
+pub(crate) fn below_u64(n: u64, mut next: impl FnMut() -> u64) -> u64 {
+    let mut m = u128::from(next()) * u128::from(n);
+    if (m as u64) < n {
+        let t = n.wrapping_neg() % n;
+        while (m as u64) < t {
+            m = u128::from(next()) * u128::from(n);
+        }
+    }
+    (m >> 64) as u64
 }
 
 /// Convert the uniforms `draws` (twice the pair count) to `out.len()` normals. An odd last

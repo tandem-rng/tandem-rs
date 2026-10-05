@@ -30,6 +30,10 @@
 //! exponentials ([`Tandem::exponential_f64`]) and their fills follow Appendix A of the
 //! specification, which is not normative, so every port agrees.
 //!
+//! The `rand` feature adds the `rand` distributions [`StandardNormal`], [`Exp1`] and
+//! [`Below`], so `rng.sample(StandardNormal)` equals `rng.normal_f64()` bit for bit. It admits
+//! `unsafe` in one function, which recognises a `Tandem` behind the generic generator.
+//!
 //! The default `std` feature adds fused multiply-adds and the square root of the normals from
 //! the standard library. Without it the crate is `no_std`.
 //!
@@ -41,9 +45,12 @@
 //! CPU has them. It admits `unsafe` in one private module and leaves the stream as it is.
 
 #![no_std]
-// The `simd-intrinsics` feature admits `unsafe` in `arch` alone.
-#![cfg_attr(not(feature = "simd-intrinsics"), forbid(unsafe_code))]
-#![cfg_attr(feature = "simd-intrinsics", deny(unsafe_code))]
+// The `simd-intrinsics` feature admits `unsafe` in `arch` alone, `rand` in `distr` alone.
+#![cfg_attr(
+    not(any(feature = "simd-intrinsics", feature = "rand")),
+    forbid(unsafe_code)
+)]
+#![cfg_attr(any(feature = "simd-intrinsics", feature = "rand"), deny(unsafe_code))]
 #![warn(missing_docs)]
 
 #[cfg(any(feature = "std", test))]
@@ -53,6 +60,8 @@ extern crate std;
 mod arch;
 mod boxmuller;
 mod derived;
+#[cfg(feature = "rand")]
+mod distr;
 #[cfg(feature = "wgpu")]
 pub mod gpu;
 #[cfg(feature = "rayon")]
@@ -63,6 +72,8 @@ mod transport;
 mod zig_tables;
 mod ziggurat;
 
+#[cfg(feature = "rand")]
+pub use distr::{Below, Exp1, StandardNormal};
 use wide::{u32x4, u64x2};
 
 /// The default chunk length `K`.

@@ -84,12 +84,12 @@ impl Fallback {
     }
 }
 
-/// The slow path of a draw `r` that missed, on its fallback `f`. `ln` is `-0.5 neg2_log`,
-/// exact given `neg2_log`. Rust does not contract, so every other operation rounds once, as the
-/// appendix requires.
+/// The slow path of a draw `r` that missed, on the fallback draws `next`. `ln` is
+/// `-0.5 neg2_log`, exact given `neg2_log`. Rust does not contract, so every other operation
+/// rounds once, as the appendix requires.
 #[cold]
 #[inline(never)]
-fn slow(mut r: u64, f: &mut Fallback) -> f64 {
+fn slow(mut r: u64, mut next: impl FnMut() -> u64) -> f64 {
     loop {
         let i = (r & 1023) as usize;
         let (x, inner) = candidate(r);
@@ -99,18 +99,30 @@ fn slow(mut r: u64, f: &mut Fallback) -> f64 {
         if i == 0 {
             // The tail beyond R, by Marsaglia's method.
             loop {
-                let a = 0.5 * neg2_log(1.0 - to_f64(f.next())) / R;
-                let b = 0.5 * neg2_log(1.0 - to_f64(f.next()));
+                let a = 0.5 * neg2_log(1.0 - to_f64(next())) / R;
+                let b = 0.5 * neg2_log(1.0 - to_f64(next()));
                 if b + b >= a * a {
                     return if (r >> 10) & 1 == 1 { -(R + a) } else { R + a };
                 }
             }
         }
-        let y = Y[i] + to_f64(f.next()) * (Y[i + 1] - Y[i]);
+        let y = Y[i] + to_f64(next()) * (Y[i + 1] - Y[i]);
         if -0.5 * neg2_log(y) < -0.5 * (x * x) {
             return x;
         }
-        r = f.next();
+        r = next();
+    }
+}
+
+/// The ziggurat on a generator without a key: a miss continues on the same stream. The values
+/// are standard normals, but not the Tandem stream's.
+#[cfg(feature = "rand")]
+#[inline]
+pub(crate) fn normal_f64_on(mut next: impl FnMut() -> u64) -> f64 {
+    let r = next();
+    match candidate(r) {
+        (x, true) => x,
+        _ => slow(r, next),
     }
 }
 
@@ -120,7 +132,7 @@ fn resolve(out: &mut [f64], misses: &[(usize, u64)], first: u64, sub: &Tandem) {
     for group in misses.chunks(8) {
         let g = core::array::from_fn(|l| first + group[l.min(group.len() - 1)].0 as u64);
         for (&(i, r), f) in group.iter().zip(&mut Fallback::eight(sub, g)) {
-            out[i] = slow(r, f);
+            out[i] = slow(r, || f.next());
         }
     }
 }
@@ -134,7 +146,10 @@ impl Tandem {
         let r = self.next_u64();
         match candidate(r) {
             (x, true) => x,
-            _ => slow(r, &mut Fallback::new(&self.normal_sub(), g)),
+            _ => {
+                let mut f = Fallback::new(&self.normal_sub(), g);
+                slow(r, || f.next())
+            }
         }
     }
 

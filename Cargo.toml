@@ -14,9 +14,11 @@ include = ["src/**", "README.md", "LICENSE", "NOTICE"]
 [dependencies]
 bytemuck = { version = "1", default-features = false }
 pollster = { version = "1", optional = true }
+rand = { version = "0.10", optional = true, default-features = false }
 rand_core = "0.10"
 rayon = { version = "1", optional = true }
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
+typeid = { version = "1", optional = true }
 wgpu = { version = "30", optional = true, default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
 wide = { version = "1.7", default-features = false }
 
@@ -36,6 +38,9 @@ default = ["std"]
 # Fused multiply-adds and the square root of the normals from the standard library. Without
 # it the crate is `no_std`, with the same stream and normals that differ in the last bits.
 std = []
+# `rand` distributions of the normals, exponentials and bounded integers. Admits `unsafe` in
+# one function.
+rand = ["dep:rand", "dep:typeid"]
 # Parallel fills over rows. Pulls in std.
 rayon = ["dep:rayon", "std"]
 # Serialize and Deserialize for `Tandem` through its transport form.
@@ -48,6 +53,10 @@ wgpu = ["dep:wgpu", "dep:pollster", "std"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[[example]]
+name = "bench_distr"
+required-features = ["rand"]
 
 [[example]]
 name = "bench_gpu"

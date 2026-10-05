@@ -17,7 +17,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         rust: [stable, "1.89"]
-        features: ["", simd-intrinsics, serde, rayon, "simd-intrinsics,rayon"]
+        features: ["", simd-intrinsics, serde, rayon, rand, "simd-intrinsics,rayon"]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
@@ -48,6 +48,7 @@ jobs:
           components: clippy
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo test --no-default-features
+      - run: cargo test --no-default-features --features rand
   gpu:
     name: ${{ matrix.os }} / wgpu
     runs-on: ${{ matrix.os }}
