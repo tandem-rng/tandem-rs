@@ -18,7 +18,7 @@ in GiB/s.
 | `fill_exponential_f64` | 5.7 | 5.9 |
 | `rand_distr::Exp1` `f32`, `StdRng` | 0.88 | 0.88 |
 | `rand_distr::Exp1` `f64`, `StdRng` | 1.8 | 1.8 |
-| `next_f64` chain, ns per draw | 1.39 | 1.42 |
+| `next_f64` chain, ns per draw | 1.11 | 1.13 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
 |---|---|---|---|
@@ -36,19 +36,17 @@ The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FM
 exponentials and normals fall behind `Exp1`.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
-thread, minimum of seven runs of 2^22 elements, in ns per element. The inherent column loops
-over the scalar method, the `Distribution` column over `rng.sample`.
+thread, 2^22 elements, in ns per element: the median of three sessions, each the minimum of
+seven runs. The inherent column loops over the scalar method, the `Distribution` column over
+`rng.sample`. Both inline into the caller, so they cost the same.
 
 | Apple M4 | inherent | `Distribution` | fill |
 |---|---|---|---|
-| normal `f64` | 2.33 | 2.33 | 1.00 |
-| normal `f64`, `sample_iter` | | 2.33 | |
-| normal `f32` pairs | 2.75 | 2.67 | 0.82 |
-| exponential `f64` | 3.72 | 2.75 | 1.25 |
-| `Below(1000u32)` | 1.87 | 1.37 | 0.70 |
-
-The generic `sample` compiles in the caller's crate and inlines the arithmetic. The inherent
-`exponential_f64` and `below_u32` stay calls into the crate, so they are slower.
+| normal `f64` | 1.79 | 1.77 | 1.03 |
+| normal `f64`, `sample_iter` | | 1.80 | |
+| normal `f32` pairs | 2.30 | 2.28 | 0.82 |
+| exponential `f64` | 2.41 | 2.41 | 1.25 |
+| `Below(1000u32)` | 0.97 | 1.01 | 0.70 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4, in GiB/s of output.
