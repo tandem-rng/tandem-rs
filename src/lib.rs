@@ -679,26 +679,32 @@ impl Tandem {
     // Scalar draws -----------------------------------------------------------------------
 
     /// One stream bit.
+    #[inline]
     pub fn next_bool(&mut self) -> bool {
         self.next(1) != 0
     }
     /// An aligned 8-bit draw.
+    #[inline]
     pub fn next_u8(&mut self) -> u8 {
         self.next(8) as u8
     }
     /// An aligned 16-bit draw.
+    #[inline]
     pub fn next_u16(&mut self) -> u16 {
         self.next(16) as u16
     }
     /// An aligned 32-bit draw.
+    #[inline]
     pub fn next_u32(&mut self) -> u32 {
         self.next(32) as u32
     }
     /// An aligned 64-bit draw.
+    #[inline]
     pub fn next_u64(&mut self) -> u64 {
         self.next(64)
     }
     /// An aligned 128-bit draw.
+    #[inline]
     pub fn next_u128(&mut self) -> u128 {
         let p = align(self.pos, 128);
         self.pos = p + 128;
@@ -706,26 +712,32 @@ impl Tandem {
         u128::from(lo) | u128::from(hi) << 64
     }
     /// A uniform `f32` in `[0, 1)` with 24 random bits: `(raw >> 8) * 2^-24`.
+    #[inline]
     pub fn next_f32(&mut self) -> f32 {
         to_f32(self.next_u32())
     }
     /// A uniform `f64` in `[0, 1)` with 53 random bits: `(raw >> 11) * 2^-53`.
+    #[inline]
     pub fn next_f64(&mut self) -> f64 {
         to_f64(self.next_u64())
     }
     /// The IEEE binary16 bit pattern of a uniform draw in `[0, 1)`: `(raw >> 5) * 2^-11`.
+    #[inline]
     pub fn next_f16_bits(&mut self) -> u16 {
         to_f16_bits(self.next_u16())
     }
     /// A complex `f32` as `[re, im]`: two `f32` draws, real part first.
+    #[inline]
     pub fn next_c32(&mut self) -> [f32; 2] {
         [self.next_f32(), self.next_f32()]
     }
     /// A complex `f64` as `[re, im]`: two `f64` draws, real part first.
+    #[inline]
     pub fn next_c64(&mut self) -> [f64; 2] {
         [self.next_f64(), self.next_f64()]
     }
     /// A uniform Unicode scalar value, from 64 stream bits.
+    #[inline]
     pub fn next_char(&mut self) -> char {
         to_char(self.next_u64())
     }
@@ -833,18 +845,22 @@ impl Tandem {
         tmp.read(align(self.pos, w) + i * u64::from(w), w)
     }
     /// Element `i` of the `u32` fill that would start here, without advancing.
+    #[inline]
     pub fn at_u32(&self, i: u64) -> u32 {
         self.at(i, 32) as u32
     }
     /// Element `i` of the `u64` fill that would start here, without advancing.
+    #[inline]
     pub fn at_u64(&self, i: u64) -> u64 {
         self.at(i, 64)
     }
     /// Element `i` of the `f32` fill that would start here, without advancing.
+    #[inline]
     pub fn at_f32(&self, i: u64) -> f32 {
         to_f32(self.at_u32(i))
     }
     /// Element `i` of the `f64` fill that would start here, without advancing.
+    #[inline]
     pub fn at_f64(&self, i: u64) -> f64 {
         to_f64(self.at_u64(i))
     }

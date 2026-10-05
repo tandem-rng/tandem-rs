@@ -23,6 +23,7 @@ impl Tandem {
     /// A uniform integer in `0..n` by Lemire's multiply and reject on `u32` draws.
     ///
     /// For `n == 0` the result is 0 after one draw, as the device core does.
+    #[inline]
     pub fn below_u32(&mut self, n: u32) -> u32 {
         below_u32(n, || self.next_u32())
     }
@@ -30,6 +31,7 @@ impl Tandem {
     /// A uniform integer in `0..n` by Lemire's multiply and reject on `u64` draws.
     ///
     /// For `n == 0` the result is 0 after one draw, as the device core does.
+    #[inline]
     pub fn below_u64(&mut self, n: u64) -> u64 {
         below_u64(n, || self.next_u64())
     }
@@ -112,11 +114,13 @@ impl Tandem {
     /// The cosine half of a Box-Muller pair in `f32` from two `f32` draws: `u = 1 - first`
     /// lies in `(0, 1]`, so the logarithm is finite. With `std` it matches tandem-c bit for
     /// bit. Ports with other `log`, `cos` and `sin` agree to a few ulps.
+    #[inline]
     pub fn normal_f32(&mut self) -> f32 {
         self.normal2_f32()[0]
     }
 
     /// Two standard normals, `[cos, sin]` halves, from two `f32` draws.
+    #[inline]
     pub fn normal2_f32(&mut self) -> [f32; 2] {
         let (first, second) = (self.next_f32(), self.next_f32());
         pair_f32(first, second)
@@ -137,12 +141,14 @@ impl Tandem {
 
     /// An exponential `-ln(1 - u)` of rate 1 from one `f64` draw. It equals element 0 of
     /// [`fill_exponential_f64`](Self::fill_exponential_f64).
+    #[inline]
     pub fn exponential_f64(&mut self) -> f64 {
         exponential_f64(self.next_f64())
     }
 
     /// The `f32` form of [`exponential_f64`](Self::exponential_f64), from one `f32` draw and
     /// computed in `f32`. It matches tandem-c bit for bit.
+    #[inline]
     pub fn exponential_f32(&mut self) -> f32 {
         exponential_f32(self.next_f32())
     }

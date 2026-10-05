@@ -141,16 +141,22 @@ impl Tandem {
     /// A standard normal from one `u64` draw by the ziggurat of Appendix A. It equals element 0
     /// of [`fill_normal_f64`](Self::fill_normal_f64), and with `std` it matches tandem-c bit for
     /// bit.
+    #[inline]
     pub fn normal_f64(&mut self) -> f64 {
         let g = align(self.pos, 64) / 64;
         let r = self.next_u64();
         match candidate(r) {
             (x, true) => x,
-            _ => {
-                let mut f = Fallback::new(&self.normal_sub(), g);
-                slow(r, || f.next())
-            }
+            _ => self.normal_f64_miss(r, g),
         }
+    }
+
+    // Seeding the fallback is long, so it stays out of the inlined fast path.
+    #[cold]
+    #[inline(never)]
+    fn normal_f64_miss(&self, r: u64, g: u64) -> f64 {
+        let mut f = Fallback::new(&self.normal_sub(), g);
+        slow(r, || f.next())
     }
 
     /// Fill with standard normals. Element `i` comes from draw `i` of the `u64` fill and the
