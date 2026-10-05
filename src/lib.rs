@@ -638,8 +638,16 @@ impl Tandem {
     #[inline(always)]
     fn load_row(&mut self, row: u64) {
         if !self.cached || self.row != row {
-            self.run_rows(row, 1, None::<fn(&[u32x4; 8])>);
+            self.step_to(row);
         }
+    }
+
+    // The inlined scalar draws reach the row step only through this call. If they reached the
+    // generic `run_rows` itself, every instance would be exported and the fills would compile
+    // slower: `fill_f64` lost 8 %.
+    #[inline(never)]
+    fn step_to(&mut self, row: u64) {
+        self.run_rows(row, 1, None::<fn(&[u32x4; 8])>);
     }
 
     #[inline(always)]
