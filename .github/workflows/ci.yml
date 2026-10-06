@@ -116,7 +116,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: |
           git clone -q https://github.com/tandem-rng/spec ../tandem-spec
-          git -C ../tandem-spec checkout -q f4205457e1e2ed19e655e36820015d7bdcf037dd
+          git -C ../tandem-spec checkout -q b31af7238076b414a3eb2a128bfd010cce136287
           for f in below fill_below normal exponential choice hashes; do
             cmp tests/conformance/$f.json ../tandem-spec/conformance/$f.json
           done

@@ -1,6 +1,8 @@
 //! The spec's conformance cases, tests/conformance/*.json, and every item of its
 //! conformance/CHECKLIST.md. Each fill case also checks its end position, the scalar draws, and
-//! the fill cut at elements 1, 7, 20, 21 and n - 1 and continued on one generator.
+//! the fill cut at elements 1, 7, 20, 21 and n - 1, or 2, 8, 20 and the largest even element
+//! below n for `f32` normals, and continued on one generator. The checklist is tandem-spec
+//! b31af72's.
 
 mod common;
 
@@ -39,7 +41,7 @@ fn end_of(c: &Value) -> u64 {
 /// at each of `cuts` and continued equals the whole fill. Returns the whole fill.
 fn whole_and_cuts<T: PartialEq + std::fmt::Debug>(
     c: &Value,
-    even_cuts: bool,
+    pairs: bool,
     fill: impl Fn(&mut Tandem, usize) -> Vec<T>,
 ) -> Vec<T> {
     let n = n(c);
@@ -49,9 +51,15 @@ fn whole_and_cuts<T: PartialEq + std::fmt::Debug>(
     if let Some(end) = c["end"].as_u64() {
         assert_eq!(end, end_of(c), "{} fixture end", id(c));
     }
-    // A cut inside an `f32` pair would drop a sin half, so those fills cut at pairs only.
-    for cut in [1, 7, 20, 21, n.saturating_sub(1)] {
-        if cut == 0 || cut >= n || (even_cuts && cut % 2 == 1) {
+    // A cut inside an `f32` pair would drop a sin half, so those fills cut at the pair
+    // boundaries 2, 8, 20 and the largest even element below n.
+    let cuts = if pairs {
+        [2, 8, 20, n.saturating_sub(1) & !1, 0]
+    } else {
+        [1, 7, 20, 21, n.saturating_sub(1)]
+    };
+    for cut in cuts {
+        if cut == 0 || cut >= n {
             continue;
         }
         let mut parts = rng(c);
@@ -468,6 +476,9 @@ fn complex_draws_span_blocks() {
 
 #[test]
 fn start_positions_lie_below_2_63() {
+    // The checklist's fill that reaches 2^64 cannot be expressed here: starts lie below 2^63,
+    // and from there a slice would need 2^57 or more elements to reach 2^64 bits. A start
+    // of 2^63 or more panics instead, in from_key, set_position and Deserialize.
     let last = (1u64 << 63) - 1;
     let key = [1, 2, 3, 4];
     let mut r = Tandem::from_key(key, last, 32);
