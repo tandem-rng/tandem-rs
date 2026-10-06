@@ -78,18 +78,39 @@ wgpu crate ships a generator, and on the A100 cuRAND's Philox4x32-10 `curandGene
 `cargo run --release --example bench_curand [log2 words]` with cuRAND and a CUDA 12 runtime on
 the loader path.
 
-| | words | one fill per submit | 32 fills per submit | Philox, one per submit | Philox, 32 per submit | cuRAND, one per call | cuRAND, 32 per sync |
+| | words | cuRAND, one per call | cuRAND, 32 per sync | one fill per submit | 32 fills per submit | Philox, one per submit | Philox, 32 per submit |
 |---|---|---|---|---|---|---|---|
-| Apple M4 Pro, Metal | 2^26 | 137 GiB/s | 153 GiB/s | 120 GiB/s | 128 GiB/s | - | - |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 769 GiB/s | 1015 GiB/s | 406 GiB/s | 445 GiB/s | 1220 GiB/s | 1258 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1066 GiB/s | 1203 GiB/s | 449 GiB/s | 459 GiB/s | 1271 GiB/s | 1293 GiB/s |
+| Apple M4 Pro, Metal | 2^26 | - | - | 137 GiB/s | 153 GiB/s | 120 GiB/s | 128 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 1234 GiB/s | 1262 GiB/s | 774 GiB/s | 1026 GiB/s | 408 GiB/s | 449 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1282 GiB/s | 1290 GiB/s | 1142 GiB/s | 1245 GiB/s | 452 GiB/s | 461 GiB/s |
 
 GPU fill: every row is the median of 21 runs after a 2 s warm-up per row. The A100 rows come
 from one session on GPU 1, idle before the run. The "32 per submit" columns submit 32 fills
-back to back and wait once. cuRAND is a native CUDA kernel and leads the Vulkan shader. For CUDA,
-tandem-cuda has the Tandem kernels. WGSL has no high multiply, and on the A100 the emulated one holds Philox to
-about 450 GiB/s, while Tandem's two multiplies per step leave it near the card's bandwidth.
-The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100
-the fill with direct 16-byte stores runs near the card's bandwidth once the buffer is large
-enough to hide the submit and clock ramp. The A100 host had no system Vulkan loader: a
-conda-forge `libvulkan-loader` on `LD_LIBRARY_PATH` with the driver's own ICD was enough.
+back to back and wait once. WGSL has no high multiply, and on the A100 the emulated one holds
+Philox to about 450 GiB/s. The Apple fill is bound by the GPU's integer throughput, not by
+memory.
+
+On the A100 the shader itself is not the gap to cuRAND. Timestamp queries put the 2^28 kernel
+at 1350 GiB/s, above cuRAND's whole call, and tandem-cuda's kernel reaches 1389. The rest is
+the cost of a submit through wgpu and Vulkan: an empty submit and wait takes 0.05 ms, and back
+to back each submit leaves the GPU idle about 0.06 ms, a fifth of a 2^26 fill. `fill_words`
+submits once per call, so batching fills in one submit is the only way past that.
+
+Off Metal, `GpuFill` runs `fill_tile`, which stages four rows of every chunk group in 16 KiB of
+workgroup memory so 32 invocations store 512 contiguous bytes, as tandem-cuda's tile kernel
+does. That lifted the A100 kernel from 1294 to 1344 GiB/s and the 2^28 fill from 1196 to 1245
+back to back and from 1099 to 1142 one per submit. On the Apple M4 Pro the tile runs five times
+slower than the direct stores, so Metal keeps them. Measured and not taken, all on the A100 at
+2^28:
+
+- A native high multiply through `SHADER_INT64` added 0.5 % to the kernel.
+- Block offsets computed once per chunk instead of in 64-bit pairs per row changed nothing.
+- Eight tile rows in 32 KiB instead of four added 0.5 % and exceed WebGPU's default limit.
+- Fill parameters as immediates instead of a fresh uniform per fill gained 2 to 6 % one per
+  submit, within the run-to-run spread, and nothing back to back.
+- Reusing one uniform and bind group for every fill gained 4 % one per submit, but each fill
+  needs its own parameters.
+
+naga's SPIR-V holds no array but the tile, so the row state stays in scalars and vectors the
+driver keeps in registers. The A100 host had no system Vulkan loader: a conda-forge
+`libvulkan-loader` on `LD_LIBRARY_PATH` with the driver's own ICD was enough.
