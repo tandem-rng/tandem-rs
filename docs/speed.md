@@ -81,11 +81,13 @@ crate ships a generator.
 | | words | one fill per submit | 32 fills per submit | Philox, one per submit | Philox, 32 per submit |
 |---|---|---|---|---|---|
 | Apple M4 Pro, Metal | 2^26 | 137 GiB/s | 153 GiB/s | 120 GiB/s | 128 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 775 GiB/s | 1040 GiB/s | - | - |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1100 GiB/s | 1215 GiB/s | - | - |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 790 GiB/s | 1010 GiB/s | 437 GiB/s | 450 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1076 GiB/s | 1202 GiB/s | 442 GiB/s | 466 GiB/s |
 
-GPU fill: the M4 row is the median of 21 runs after a 2 s warm-up. The A100 rows predate the
-baseline and give the minimum of seven runs after a half-second warm-up, with the GPU idle.
+GPU fill: every row is the median of 21 runs after a 2 s warm-up per row. The A100 rows come
+from one session with the GPU idle. The "32 per submit" columns submit 32 fills back to back
+and wait once. WGSL has no high multiply, and on the A100 the emulated one holds Philox to
+about 450 GiB/s, while Tandem's two multiplies per step leave it near the card's bandwidth.
 The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100
 the fill with direct 16-byte stores runs near the card's bandwidth once the buffer is large
 enough to hide the submit and clock ramp. The A100 host had no system Vulkan loader: a
