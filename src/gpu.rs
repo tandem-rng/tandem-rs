@@ -17,6 +17,8 @@ use crate::{Tandem, align, to_f32, to_f64};
 pub const SHADER: &str = include_str!("tandem.wgsl");
 
 const GROUPS_PER_WORKGROUP: u64 = 32;
+// Rows per tile of `fill_tile`, which needs K to be a multiple of it.
+const TILE_STEPS: u64 = 4;
 const BLOCK_BYTES: u64 = 16;
 
 /// Where a fill's values lie inside the storage buffer it wrote.
@@ -36,6 +38,8 @@ pub struct GpuFill {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    // The tile kernel, where it beats the direct stores: on every backend but Metal.
+    tile: Option<wgpu::ComputePipeline>,
     layout: wgpu::BindGroupLayout,
     adapter: std::string::String,
 }
@@ -47,19 +51,48 @@ impl GpuFill {
             label: Some("tandem"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let buffer = |binding, ty| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        // One explicit layout, so a bind group serves both entry points.
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tandem fill"),
-            layout: None,
-            module: &module,
-            entry_point: Some("fill"),
-            compilation_options: Default::default(),
-            cache: None,
+            entries: &[
+                buffer(0, wgpu::BufferBindingType::Uniform),
+                buffer(1, wgpu::BufferBindingType::Storage { read_only: false }),
+            ],
         });
-        let layout = pipeline.get_bind_group_layout(0);
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("tandem fill"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let compile = |entry| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&pipeline_layout),
+                module: &module,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+        let pipeline = compile("fill");
+        // Apple GPUs run the tile five times slower than the direct stores, an A100 4 % faster.
+        let tile =
+            (device.adapter_info().backend != wgpu::Backend::Metal).then(|| compile("fill_tile"));
         GpuFill {
             device,
             queue,
             pipeline,
+            tile,
             layout,
             adapter: std::string::String::new(),
         }
@@ -207,7 +240,8 @@ impl GpuFill {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            pass.set_pipeline(&self.pipeline);
+            let tile = self.tile.as_ref().filter(|_| k % TILE_STEPS == 0);
+            pass.set_pipeline(tile.unwrap_or(&self.pipeline));
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(workgroups as u32, 1, 1);
         }
