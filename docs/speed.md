@@ -1,7 +1,7 @@
 # Speed
 
-`cargo run --release --example bench`, `bench_distr`, `bench_par` and `bench_gpu` produce the
-figures.
+`cargo run --release --example bench`, `bench_distr`, `bench_par`, `bench_gpu` and
+`bench_curand` produce the figures.
 
 ## CPU
 
@@ -23,19 +23,19 @@ integers, one `random()` per element for the floats, `rand_distr::Exp1` for the 
 | `fill_exponential_f64` | 6.0 | 5.9 | 6.0 | 1.8 |
 | `next_f64` chain | 6.9 | 6.6 | 10.4 | 2.5 |
 
-| AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 |
-|---|---|---|---|
-| `fill_u32` | 5.6 | 5.8 | 11.4 |
-| `fill_u64` | 5.7 | 5.7 | 11.8 |
-| `fill_f32` | 5.0 | 5.2 | 9.0 |
-| `fill_f64` | 3.8 | 4.4 | 7.2 |
-| `fill_exponential_f32` | 0.27 | 0.27 | 4.2 |
-| `fill_exponential_f64` | 0.23 | 0.33 | 3.0 |
-| `rand_distr::Exp1` `f32`, `StdRng` | 0.64 | 0.65 | 0.66 |
-| `rand_distr::Exp1` `f64`, `StdRng` | 1.3 | 1.3 | 1.3 |
+| AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 | `SmallRng` | `StdRng` |
+|---|---|---|---|---|---|
+| `fill_u32` | 5.7 | 5.8 | 11.9 | 6.3 | 3.0 |
+| `fill_u64` | 5.6 | 5.8 | 11.6 | 6.3 | 3.0 |
+| `fill_f32` | 5.0 | 5.2 | 9.0 | 3.0 | 1.9 |
+| `fill_f64` | 3.8 | 4.4 | 7.2 | 5.9 | 2.2 |
+| `fill_exponential_f32` | 0.27 | 0.28 | 4.2 | 1.4 | 0.64 |
+| `fill_exponential_f64` | 0.23 | 0.33 | 3.0 | 2.7 | 1.4 |
+| `next_f64` chain | 1.6 | 1.6 | 2.1 | 5.9 | 2.3 |
 
-The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Without AVX2 and FMA the
-exponentials and normals fall behind `Exp1`.
+Every EPYC figure comes from one session on one pinned core and is the median of three runs.
+The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Only the AVX2 build leads
+`SmallRng` on the fills.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
 thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column
@@ -64,29 +64,30 @@ generator per 2^16 elements by chunk index. Its normals are `rand_distr::Standar
 | `fill_normal_f64` | 7.3 | 70 | 6.2 | 56 |
 | `fill_normal_f32` | 4.5 | 42 | 3.1 | 28 |
 
-The AVX2 column and the SSE2 column come from one session, except that the exponential
-and `Exp1` rows come from a later one. The `Exp1` rows draw one sample per element from
-`rand`'s default generator. Without AVX2 and FMA the x86_64 target has no fused instruction, so
-each `mul_add` of the exponentials and normals is a library call, which is why those columns
-fall behind `Exp1`. The default and SSE2 columns of the EPYC table use no AVX2.
+Without AVX2 and FMA the x86_64 target has no fused instruction, so each `mul_add` of the
+exponentials and normals is a library call, which is why the default and SSE2 columns of the
+EPYC table fall behind `rand_distr::Exp1`. Those two columns use no AVX2.
 
 ## GPU
 
 GPU fill into device memory, `cargo run --release --features wgpu --example bench_gpu
 [log2 words]`. `TANDEM_GPU_ADAPTER=<index>` picks the adapter.
 
-The baseline is Philox4x32-10 in WGSL with the same `mul_hi` as the Tandem shader, since no wgpu
-crate ships a generator.
+The baselines are Philox4x32-10 in WGSL with the same `mul_hi` as the Tandem shader, since no
+wgpu crate ships a generator, and on the A100 cuRAND's Philox4x32-10 `curandGenerate`,
+`cargo run --release --example bench_curand [log2 words]` with cuRAND and a CUDA 12 runtime on
+the loader path.
 
-| | words | one fill per submit | 32 fills per submit | Philox, one per submit | Philox, 32 per submit |
-|---|---|---|---|---|---|
-| Apple M4 Pro, Metal | 2^26 | 137 GiB/s | 153 GiB/s | 120 GiB/s | 128 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 790 GiB/s | 1010 GiB/s | 437 GiB/s | 450 GiB/s |
-| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1076 GiB/s | 1202 GiB/s | 442 GiB/s | 466 GiB/s |
+| | words | one fill per submit | 32 fills per submit | Philox, one per submit | Philox, 32 per submit | cuRAND, one per call | cuRAND, 32 per sync |
+|---|---|---|---|---|---|---|---|
+| Apple M4 Pro, Metal | 2^26 | 137 GiB/s | 153 GiB/s | 120 GiB/s | 128 GiB/s | - | - |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^26 | 769 GiB/s | 1015 GiB/s | 406 GiB/s | 445 GiB/s | 1220 GiB/s | 1258 GiB/s |
+| NVIDIA A100 40 GB PCIe, Vulkan | 2^28 | 1066 GiB/s | 1203 GiB/s | 449 GiB/s | 459 GiB/s | 1271 GiB/s | 1293 GiB/s |
 
 GPU fill: every row is the median of 21 runs after a 2 s warm-up per row. The A100 rows come
-from one session with the GPU idle. The "32 per submit" columns submit 32 fills back to back
-and wait once. WGSL has no high multiply, and on the A100 the emulated one holds Philox to
+from one session on GPU 1, idle before the run. The "32 per submit" columns submit 32 fills
+back to back and wait once. cuRAND is a native CUDA kernel and leads the Vulkan shader. For CUDA,
+tandem-cuda has the Tandem kernels. WGSL has no high multiply, and on the A100 the emulated one holds Philox to
 about 450 GiB/s, while Tandem's two multiplies per step leave it near the card's bandwidth.
 The Apple fill is bound by the GPU's integer throughput, not by memory. On the A100
 the fill with direct 16-byte stores runs near the card's bandwidth once the buffer is large
