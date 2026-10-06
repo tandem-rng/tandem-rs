@@ -4,9 +4,10 @@
 
 use tandem_rng::Tandem;
 
-/// Start offsets and lengths that cut rows, tasks and chunks: one task is 1024 rows.
+/// Start offsets and lengths that cut rows, tasks and chunks: one task is 1024 rows. The
+/// empty fill starts unaligned.
 const CASES: [(u64, usize); 7] = [
-    (0, 0),
+    (33, 0),
     (0, 5),
     (96, 300),
     (1024, 1 << 15),
@@ -59,10 +60,11 @@ fn below_fills() {
 }
 
 #[test]
-fn normal_fills() {
-    // One task is 8192 elements; the odd lengths end on a half pair.
+fn by_draw_fills() {
+    // Normals and choices. One task is 8192 elements; the odd lengths end on a half pair, and
+    // the empty fills start unaligned.
     for (pos, len) in [
-        (0, 0),
+        (33, 0),
         (70, 5),
         (0, 8192),
         (96, 8193),
@@ -80,6 +82,12 @@ fn normal_fills() {
         serial.fill_normal_f32(&mut want);
         par.par_fill_normal_f32(&mut got);
         assert!(got == want, "f32 at position {pos}, length {len}");
+        assert_eq!(par, serial);
+        let table = tandem_rng::ChoiceTable::new(&[1.0, 2.0, 0.0, 4.0]).unwrap();
+        let (mut want, mut got) = (vec![0u32; len], vec![0u32; len]);
+        serial.fill_choice(&mut want, &table);
+        par.par_fill_choice(&mut got, &table);
+        assert!(got == want, "choice at position {pos}, length {len}");
         assert_eq!(par, serial);
     }
 }

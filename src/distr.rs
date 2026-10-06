@@ -94,6 +94,15 @@ impl Distribution<u32> for Below<u32> {
     }
 }
 
+/// [`Tandem::choice`]: one `u64` draw, so exact on any generator of the Tandem stream.
+#[cfg(feature = "alloc")]
+impl Distribution<u32> for crate::ChoiceTable {
+    #[inline]
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
+        self.index(rng.next_u64())
+    }
+}
+
 impl Distribution<u64> for Below<u64> {
     #[inline]
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u64 {

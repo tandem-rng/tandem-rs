@@ -43,6 +43,10 @@ impl Tandem {
     /// `from_key(key, 0, K).sub(PURPOSE_BELOW32).split(g)`, so a fill cut anywhere equals the
     /// whole. A fill without rejections equals the scalar [`below_u32`](Self::below_u32) calls.
     pub fn fill_below_u32(&mut self, out: &mut [u32], n: u32) {
+        // Appendix A: an empty bounded fill leaves the position where it is.
+        if out.is_empty() {
+            return;
+        }
         let first = crate::align(self.pos, 32) / 32;
         self.fill_u32(out);
         self.bound_u32(out, first, n);
@@ -52,6 +56,9 @@ impl Tandem {
     /// [`fill_below_u32`](Self::fill_below_u32) does from the `u32` fill, with
     /// `PURPOSE_BELOW64`.
     pub fn fill_below_u64(&mut self, out: &mut [u64], n: u64) {
+        if out.is_empty() {
+            return;
+        }
         let first = crate::align(self.pos, 64) / 64;
         self.fill_u64(out);
         self.bound_u64(out, first, n);

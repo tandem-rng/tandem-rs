@@ -30,6 +30,10 @@
 //! exponentials ([`Tandem::exponential_f64`]) and their fills follow Appendix A of the
 //! specification, which is not normative, so every port agrees.
 //!
+//! [`ChoiceTable`] with [`Tandem::choice`] and [`Tandem::fill_choice`] draws weighted indices by
+//! the alias table of Appendix C, the same indices in every port. It needs the `alloc` feature,
+//! which `std` implies.
+//!
 //! The `rand` feature adds the `rand` distributions [`StandardNormal`], [`Exp1`] and
 //! [`Below`], so `rng.sample(StandardNormal)` equals `rng.normal_f64()` bit for bit. It admits
 //! `unsafe` in one function, which recognises a `Tandem` behind the generic generator.
@@ -53,12 +57,16 @@
 #![cfg_attr(any(feature = "simd-intrinsics", feature = "rand"), deny(unsafe_code))]
 #![warn(missing_docs)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
 #[cfg(feature = "simd-intrinsics")]
 mod arch;
 mod boxmuller;
+#[cfg(feature = "alloc")]
+mod choice;
 mod derived;
 #[cfg(feature = "rand")]
 mod distr;
@@ -72,12 +80,17 @@ mod transport;
 mod zig_tables;
 mod ziggurat;
 
+#[cfg(feature = "alloc")]
+pub use choice::{ChoiceTable, InvalidWeights};
 #[cfg(feature = "rand")]
 pub use distr::{Below, Exp1, StandardNormal};
 use wide::{u32x4, u64x2};
 
 /// The default chunk length `K`.
 pub const DEFAULT_K: u32 = 32;
+
+/// Start positions lie below 2^63 (specification, section 5).
+const MAX_START: u64 = 1 << 63;
 
 const CLOCK_WEYL: u32 = 0x9e37_79b9;
 const DOMAIN_STREAM: u32 = 0x9e37_79b9;
@@ -535,12 +548,20 @@ impl Tandem {
     ///
     /// # Panics
     ///
-    /// If `k` is not a power of two in `1..=65536`.
+    /// If `k` is not a power of two in `1..=65536`, or if `position` is not below 2^63, the
+    /// specification's bound on a start position.
     pub fn from_key(key: [u32; 4], position: u64, k: u32) -> Self {
         assert!(
             k.is_power_of_two() && k <= 65536,
             "chunk length must be a power of two in 1..=65536"
         );
+        assert!(position < MAX_START, "start position must be below 2^63");
+        Self::unchecked(key, position, k)
+    }
+
+    /// [`from_key`](Self::from_key) without the checks, for the generators of a running fill,
+    /// whose positions may pass 2^63.
+    pub(crate) fn unchecked(key: [u32; 4], position: u64, k: u32) -> Self {
         Tandem {
             key,
             pos: position,
@@ -563,7 +584,13 @@ impl Tandem {
     }
 
     /// Move to a stream bit position.
+    ///
+    /// # Panics
+    ///
+    /// If `position` is not below 2^63, as [`from_key`](Self::from_key) does. The generator is
+    /// then unchanged.
     pub fn set_position(&mut self, position: u64) {
+        assert!(position < MAX_START, "start position must be below 2^63");
         self.pos = position;
     }
 

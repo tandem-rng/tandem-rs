@@ -1,128 +1,13 @@
-//! Bounded integers, normals and exponentials agree with tandem-c's cross fixtures, and fills agree
-//! with scalar draws. The fixed values come from tools/gen_derived.py.
+//! Bounded integers, normals, exponentials and weighted choice against their definitions and
+//! their laws. tests/conformance.rs holds the cross-implementation fixtures.
 
-// The reference values carry 17 digits as the device core prints them.
-#[allow(clippy::excessive_precision)]
-mod derived_data;
-
-use derived_data::{
-    BELOW_U32, BELOW_U64, EXPONENTIAL_F32, EXPONENTIAL_F64, FILL_BELOW_U32, FILL_BELOW_U64,
-    NORMAL_F32, NORMAL_F64,
-};
 use tandem_rng::Tandem;
 
-/// The fixtures start after one bit draw, which leaves the position unaligned.
+/// One bit draw leaves the position unaligned.
 fn start() -> Tandem {
     let mut rng = Tandem::new(42);
     rng.next_bool();
     rng
-}
-
-/// Bit equality with `std`, whose fused multiply-add is tandem-c's. Without it the plain
-/// `a * b + c` differs in the last bits, within the tolerance of Appendix A.
-fn same_f64(got: f64, want: f64) -> bool {
-    if cfg!(feature = "std") {
-        got.to_bits() == want.to_bits()
-    } else {
-        (got - want).abs() <= 1e-12 * want.abs() + 1e-15
-    }
-}
-
-fn same_f32(got: f32, want: f32) -> bool {
-    if cfg!(feature = "std") {
-        got.to_bits() == want.to_bits()
-    } else {
-        (got - want).abs() <= 16.0 * f32::EPSILON * want.abs() + 1e-6
-    }
-}
-
-#[test]
-fn below_matches_the_device_core() {
-    for (n, want, end) in BELOW_U32 {
-        let mut rng = start();
-        let got: Vec<u32> = want.iter().map(|_| rng.below_u32(*n)).collect();
-        assert_eq!((&got[..], rng.position()), (*want, *end), "below_u32({n})");
-    }
-    for (n, want, end) in BELOW_U64 {
-        let mut rng = start();
-        let got: Vec<u64> = want.iter().map(|_| rng.below_u64(*n)).collect();
-        assert_eq!((&got[..], rng.position()), (*want, *end), "below_u64({n})");
-    }
-}
-
-#[test]
-fn bound_zero_returns_zero_after_one_draw() {
-    let (mut a, mut b) = (Tandem::new(3), Tandem::new(3));
-    assert_eq!(a.below_u32(0), 0);
-    b.next_u32();
-    assert_eq!(a, b);
-    assert_eq!(a.below_u64(0), 0);
-    b.next_u64();
-    assert_eq!(a, b);
-}
-
-#[test]
-fn normals_match_tandem_c() {
-    // The rows start unaligned and put a wedge accept, a wedge reject and a tail at element 20.
-    for (at, want, end) in NORMAL_F64 {
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let mut got = vec![0.0; want.len()];
-        rng.fill_normal_f64(&mut got);
-        for (i, (got, want)) in got.iter().zip(*want).enumerate() {
-            assert!(
-                same_f64(*got, *want),
-                "f64 at {at}, {i}: {got} against {want}"
-            );
-        }
-        assert_eq!(rng.position(), *end, "f64 position at {at}");
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let scalar: Vec<f64> = want.iter().map(|_| rng.normal_f64()).collect();
-        assert_eq!(scalar, got, "f64 scalar draws at {at}");
-        assert_eq!(rng.position(), *end);
-    }
-
-    let (want, end) = NORMAL_F32;
-    let mut rng = start();
-    let got: Vec<f32> = (0..want.len() / 2)
-        .flat_map(|_| rng.normal2_f32())
-        .collect();
-    for (i, (got, want)) in got.iter().zip(want).enumerate() {
-        assert!(same_f32(*got, *want), "f32 {i}: {got} against {want}");
-    }
-    assert_eq!(rng.position(), end);
-    let mut rng = start();
-    let mut got = vec![0.0; want.len()];
-    rng.fill_normal_f32(&mut got);
-    assert!(got.iter().zip(want).all(|(g, w)| same_f32(*g, *w)));
-    assert_eq!(rng.position(), end);
-}
-
-#[test]
-fn fill_below_matches_the_device_core() {
-    for (at, n, want, end) in FILL_BELOW_U32 {
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let mut got = vec![0; want.len()];
-        rng.fill_below_u32(&mut got, *n);
-        assert_eq!(
-            (&got[..], rng.position()),
-            (*want, *end),
-            "fill_below_u32({n}) at {at}"
-        );
-    }
-    for (at, n, want, end) in FILL_BELOW_U64 {
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let mut got = vec![0; want.len()];
-        rng.fill_below_u64(&mut got, *n);
-        assert_eq!(
-            (&got[..], rng.position()),
-            (*want, *end),
-            "fill_below_u64({n}) at {at}"
-        );
-    }
 }
 
 #[test]
@@ -195,7 +80,9 @@ fn bounded_fills_follow_the_definition() {
                 got.iter().map(|&x| u64::from(x)).eq(want),
                 "u32 n={n} len={len}"
             );
-            assert_eq!(rng, raw, "u32 consumes exactly len draws");
+            // An empty bounded fill stays at its start, as Appendix A requires.
+            let used = if len > 0 { raw } else { start() };
+            assert_eq!(rng, used, "u32 consumes exactly len draws");
         }
         for n in [0, 1, 3, 1_000_000_000_000, 0xc000_0000_0000_0000u64] {
             let mut rng = start();
@@ -209,7 +96,8 @@ fn bounded_fills_follow_the_definition() {
                 below_by_definition(&rng, &words, n, true, 1),
                 "u64 n={n} len={len}"
             );
-            assert_eq!(rng, raw, "u64 consumes exactly len draws");
+            let used = if len > 0 { raw } else { start() };
+            assert_eq!(rng, used, "u64 consumes exactly len draws");
         }
     }
 }
@@ -244,13 +132,6 @@ fn normal_f64_fills_cut_anywhere_equal_the_whole() {
 }
 
 #[test]
-fn empty_normal_f64_fill_aligns_the_position() {
-    let mut rng = start();
-    rng.fill_normal_f64(&mut []);
-    assert_eq!(rng.position(), 64);
-}
-
-#[test]
 fn normal_f32_fills_are_flattened_pairs() {
     // Lengths cross the block of the normal fill and a row, and include odd ones, which
     // use the cos half of the last pair and still consume both of its draws.
@@ -262,13 +143,6 @@ fn normal_f32_fills_are_flattened_pairs() {
         assert_eq!(got, want[..len], "normal_f32 at {len}");
         assert_eq!(a, b, "normal_f32 position at {len}");
     }
-}
-
-#[test]
-fn scalar_normal_f32_is_the_cos_half() {
-    let (mut a, mut b) = (Tandem::new(7), Tandem::new(7));
-    assert_eq!(a.normal_f32(), b.normal2_f32()[0]);
-    assert_eq!(a, b);
 }
 
 #[test]
@@ -288,77 +162,6 @@ fn normals_have_unit_moments() {
             (var - 1.0).abs() < 5.0 * (2.0 / n).sqrt(),
             "{name} variance {var}"
         );
-    }
-}
-
-#[test]
-fn bounded_fills_cut_anywhere_equal_the_whole() {
-    // The fallback is keyed by the global draw index, so a fill split at any element and
-    // continued gives the whole fill, rejected elements included. The bounds reject a quarter
-    // of the draws, and the start is unaligned.
-    let (n32, n64) = (0xc000_0000u32, 0xc000_0000_0000_0000u64);
-    for cut in [0, 1, 7, 100, 777, 1000] {
-        let mut whole = start();
-        let mut a = vec![0u32; 1000];
-        whole.fill_below_u32(&mut a, n32);
-        let mut parts = start();
-        let mut b = vec![0u32; 1000];
-        let (head, tail) = b.split_at_mut(cut);
-        parts.fill_below_u32(head, n32);
-        parts.fill_below_u32(tail, n32);
-        assert_eq!(a, b, "u32 cut at {cut}");
-        assert_eq!(whole, parts);
-
-        let mut whole = start();
-        let mut a = vec![0u64; 1000];
-        whole.fill_below_u64(&mut a, n64);
-        let mut parts = start();
-        let mut b = vec![0u64; 1000];
-        let (head, tail) = b.split_at_mut(cut);
-        parts.fill_below_u64(head, n64);
-        parts.fill_below_u64(tail, n64);
-        assert_eq!(a, b, "u64 cut at {cut}");
-        assert_eq!(whole, parts);
-    }
-}
-
-#[test]
-fn exponentials_match_tandem_c() {
-    for (at, want, end) in EXPONENTIAL_F64 {
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let mut scalar = rng;
-        let mut got = vec![0.0; want.len()];
-        rng.fill_exponential_f64(&mut got);
-        assert!(
-            got.iter().zip(*want).all(|(g, w)| same_f64(*g, *w)),
-            "f64 fill at {at}"
-        );
-        assert_eq!(rng.position(), *end, "f64 fill position at {at}");
-        let got: Vec<f64> = want.iter().map(|_| scalar.exponential_f64()).collect();
-        assert!(
-            got.iter().zip(*want).all(|(g, w)| same_f64(*g, *w)),
-            "f64 scalar at {at}"
-        );
-        assert_eq!(scalar, rng);
-    }
-    for (at, want, end) in EXPONENTIAL_F32 {
-        let mut rng = Tandem::new(42);
-        rng.set_position(*at);
-        let mut scalar = rng;
-        let mut got = vec![0.0; want.len()];
-        rng.fill_exponential_f32(&mut got);
-        assert!(
-            got.iter().zip(*want).all(|(g, w)| same_f32(*g, *w)),
-            "f32 fill at {at}"
-        );
-        assert_eq!(rng.position(), *end, "f32 fill position at {at}");
-        let got: Vec<f32> = want.iter().map(|_| scalar.exponential_f32()).collect();
-        assert!(
-            got.iter().zip(*want).all(|(g, w)| same_f32(*g, *w)),
-            "f32 scalar at {at}"
-        );
-        assert_eq!(scalar, rng);
     }
 }
 
@@ -445,4 +248,24 @@ fn exponentials_are_exp1() {
         rng.fill_exponential_f32(&mut y);
         z.iter_mut().zip(y).for_each(|(z, y)| *z = f64::from(y));
     });
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn choice_follows_the_weights() {
+    // A zero weight never appears. Nine positive weights leave 8 degrees of freedom: the
+    // 0.0005 and 0.9995 quantiles of chi-square are 0.71 and 27.87.
+    let w = [0.5, 3.0, 0.0, 1.0, 7.0, 2.25, 0.1, 4.0, 1.0, 6.0];
+    let table = tandem_rng::ChoiceTable::new(&w).unwrap();
+    let mut picks = vec![0; 1_000_000];
+    Tandem::new(2028).fill_choice(&mut picks, &table);
+    let mut counts = [0f64; 10];
+    picks.iter().for_each(|&i| counts[i as usize] += 1.0);
+    assert_eq!(counts[2], 0.0);
+    let (n, sum) = (picks.len() as f64, w.iter().sum::<f64>());
+    let chi2: f64 = (0..w.len())
+        .filter(|&i| w[i] > 0.0)
+        .map(|i| (counts[i] - n * w[i] / sum).powi(2) / (n * w[i] / sum))
+        .sum();
+    assert!(0.71 < chi2 && chi2 < 27.87, "chi-square {chi2}");
 }

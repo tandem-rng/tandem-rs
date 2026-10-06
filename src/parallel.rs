@@ -28,7 +28,7 @@ impl Tandem {
         rows.par_chunks_mut(TASK_ROWS * per_row)
             .enumerate()
             .for_each(|(i, chunk)| {
-                let mut task = Tandem::from_key(key, base + 1024 * (i * TASK_ROWS) as u64, k);
+                let mut task = Tandem::unchecked(key, base + 1024 * (i * TASK_ROWS) as u64, k);
                 task.fill(chunk);
             });
         self.pos = base + w * rows.len() as u64;
@@ -51,6 +51,9 @@ impl Tandem {
     /// [`fill_below_u32`](Self::fill_below_u32) across threads. Element `i` depends on draw `i`
     /// alone, so the fill and the bounding both split freely.
     pub fn par_fill_below_u32(&mut self, out: &mut [u32], n: u32) {
+        if out.is_empty() {
+            return;
+        }
         let first = crate::align(self.pos, 32) / 32;
         self.par_fill_u32(out);
         let me = &*self;
@@ -60,6 +63,9 @@ impl Tandem {
     }
     /// [`fill_below_u64`](Self::fill_below_u64) across threads.
     pub fn par_fill_below_u64(&mut self, out: &mut [u64], n: u64) {
+        if out.is_empty() {
+            return;
+        }
         let first = crate::align(self.pos, 64) / 64;
         self.par_fill_u64(out);
         let me = &*self;
@@ -71,16 +77,26 @@ impl Tandem {
     /// first draw, so no scratch buffer for the draws is needed.
     pub fn par_fill_normal_f64(&mut self, out: &mut [f64]) {
         let draws = out.len();
-        self.par_normals(out, 64, draws, Tandem::fill_normal_f64)
+        self.par_by_draw(out, 64, draws, Tandem::fill_normal_f64)
     }
     /// [`fill_normal_f32`](Self::fill_normal_f32) across threads. An odd length consumes both
     /// draws of its last pair.
     pub fn par_fill_normal_f32(&mut self, out: &mut [f32]) {
+        if out.is_empty() {
+            return;
+        }
         let draws = out.len().next_multiple_of(2);
-        self.par_normals(out, 32, draws, Tandem::fill_normal_f32)
+        self.par_by_draw(out, 32, draws, Tandem::fill_normal_f32)
+    }
+    /// [`fill_choice`](Self::fill_choice) across threads.
+    pub fn par_fill_choice(&mut self, out: &mut [u32], table: &crate::ChoiceTable) {
+        let draws = out.len();
+        self.par_by_draw(out, 64, draws, |t, chunk| t.fill_choice(chunk, table))
     }
 
-    fn par_normals<T: Send>(
+    /// Fill `out` from `draws` draws of width `w`, each task from its own first draw, so no
+    /// scratch buffer for the draws is needed.
+    fn par_by_draw<T: Send>(
         &mut self,
         out: &mut [T],
         w: u32,
@@ -93,7 +109,7 @@ impl Tandem {
         let (key, k) = (self.key, self.k);
         let w = u64::from(w);
         out.par_chunks_mut(TASK).enumerate().for_each(|(i, chunk)| {
-            let mut task = Tandem::from_key(key, base + w * (i * TASK) as u64, k);
+            let mut task = Tandem::unchecked(key, base + w * (i * TASK) as u64, k);
             fill(&mut task, chunk);
         });
         self.pos = base + w * draws as u64;

@@ -172,7 +172,7 @@ impl GpuFill {
         let k = u64::from(rng.chunk_length());
         let p0 = align(rng.position(), bits);
         let p1 = p0 + u64::from(bits) * n as u64;
-        rng.set_position(p1);
+        rng.pos = p1;
 
         let block_start = p0 >> 7;
         let block_end = p1.div_ceil(128);

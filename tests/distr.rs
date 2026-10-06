@@ -1,13 +1,10 @@
-//! The `rand` distributions equal the inherent draws on the tandem-c fixtures and in the dump
-//! hashes, and `sample_iter` equals the fills across their passes.
+//! The `rand` distributions equal the inherent draws on the spec's conformance cases and in the
+//! dump hashes, and `sample_iter` equals the fills across their passes.
 #![cfg(feature = "rand")]
 
-#[allow(clippy::excessive_precision, dead_code)]
-mod derived_data;
+mod common;
 
-use derived_data::{
-    BELOW_U32, BELOW_U64, EXPONENTIAL_F32, EXPONENTIAL_F64, NORMAL_F32, NORMAL_F64,
-};
+use common::*;
 use rand::distr::Distribution;
 use rand::{Rng, RngExt, SeedableRng};
 use tandem_rng::{Below, Exp1, StandardNormal, Tandem};
@@ -18,7 +15,7 @@ fn at(pos: u64) -> Tandem {
     rng
 }
 
-/// The fixtures of `below`, `NORMAL_F32` start after one bit draw.
+/// One bit draw leaves the position unaligned.
 fn start() -> Tandem {
     let mut rng = Tandem::new(42);
     rng.next_bool();
@@ -34,97 +31,105 @@ fn bits32(x: &[f32]) -> Vec<u32> {
 }
 
 #[test]
-fn normal_f64_is_the_inherent_draw_on_the_fixtures() {
-    for (pos, want, end) in NORMAL_F64 {
-        let n = want.len();
-        let mut inherent = at(*pos);
-        let scalar: Vec<f64> = (0..n).map(|_| inherent.normal_f64()).collect();
-        let mut rng = at(*pos);
-        let got: Vec<f64> = (0..n).map(|_| rng.sample(StandardNormal)).collect();
-        assert_eq!(bits64(&got), bits64(&scalar), "sample at {pos}");
-        assert_eq!(rng, inherent);
-        assert_eq!(rng.position(), *end);
-        let mut rng = at(*pos);
-        let got: Vec<f64> = StandardNormal.sample_iter(&mut rng).take(n).collect();
-        assert_eq!(bits64(&got), bits64(&scalar), "sample_iter at {pos}");
-        assert_eq!(rng, inherent);
-        if cfg!(feature = "std") {
-            assert_eq!(bits64(&got), bits64(want), "fixture at {pos}");
+fn normals_are_the_inherent_draws_on_the_fixtures() {
+    for c in cases("normal.json").iter().filter(|c| n(c) > 0) {
+        let n = n(c);
+        if c["kind"] == "fill_normal_f64" {
+            let mut inherent = rng(c);
+            let scalar: Vec<f64> = (0..n).map(|_| inherent.normal_f64()).collect();
+            let mut r = rng(c);
+            let got: Vec<f64> = (0..n).map(|_| r.sample(StandardNormal)).collect();
+            assert_eq!(bits64(&got), bits64(&scalar), "sample, {}", id(c));
+            assert_eq!(r, inherent);
+            let mut r = rng(c);
+            let got: Vec<f64> = StandardNormal.sample_iter(&mut r).take(n).collect();
+            assert_eq!(bits64(&got), bits64(&scalar), "sample_iter, {}", id(c));
+            assert_eq!(r, inherent);
+            assert!(
+                got.iter().zip(f64s(c)).all(|(g, w)| same_f64(*g, w)),
+                "{}",
+                id(c)
+            );
+        } else {
+            // The flattened [f32; 2] pairs are the fill, and an f32 sample is the cos half.
+            let mut r = rng(c);
+            let got: Vec<f32> = StandardNormal
+                .sample_iter(&mut r)
+                .take(n.div_ceil(2))
+                .flat_map(|p: [f32; 2]| p)
+                .take(n)
+                .collect();
+            assert!(
+                got.iter().zip(f32s(c)).all(|(g, w)| same_f32(*g, w)),
+                "{}",
+                id(c)
+            );
+            let (mut a, mut b) = (rng(c), rng(c));
+            for _ in 0..n {
+                let z: f32 = a.sample(StandardNormal);
+                assert_eq!(z.to_bits(), b.normal_f32().to_bits());
+            }
+            assert_eq!(a, b);
         }
     }
-}
-
-#[test]
-fn normal_f32_is_the_inherent_draw_on_the_fixtures() {
-    let (want, end) = NORMAL_F32;
-    let mut inherent = start();
-    let pairs: Vec<[f32; 2]> = (0..want.len() / 2)
-        .map(|_| inherent.normal2_f32())
-        .collect();
-    let mut rng = start();
-    let got: Vec<[f32; 2]> = StandardNormal
-        .sample_iter(&mut rng)
-        .take(pairs.len())
-        .collect();
-    assert_eq!(
-        got.iter()
-            .flatten()
-            .map(|x| x.to_bits())
-            .collect::<Vec<_>>(),
-        pairs
-            .iter()
-            .flatten()
-            .map(|x| x.to_bits())
-            .collect::<Vec<_>>()
-    );
-    assert_eq!((rng, rng.position()), (inherent, end));
-    if cfg!(feature = "std") {
-        let flat: Vec<f32> = got.into_iter().flatten().collect();
-        assert_eq!(bits32(&flat), bits32(want));
-    }
-    let (mut a, mut b) = (start(), start());
-    for _ in 0..want.len() {
-        let z: f32 = a.sample(StandardNormal);
-        assert_eq!(z.to_bits(), b.normal_f32().to_bits());
-    }
-    assert_eq!(a, b);
 }
 
 #[test]
 fn exponentials_are_the_inherent_draws_on_the_fixtures() {
-    for (pos, want, end) in EXPONENTIAL_F64 {
-        let (mut rng, mut inherent) = (at(*pos), at(*pos));
-        let got: Vec<f64> = Exp1.sample_iter(&mut rng).take(want.len()).collect();
-        let scalar: Vec<f64> = want.iter().map(|_| inherent.exponential_f64()).collect();
-        assert_eq!(bits64(&got), bits64(&scalar), "f64 at {pos}");
-        assert_eq!((rng, rng.position()), (inherent, *end));
-        if cfg!(feature = "std") {
-            assert_eq!(bits64(&got), bits64(want), "f64 fixture at {pos}");
+    for c in cases("exponential.json").iter().filter(|c| n(c) > 0) {
+        let (mut r, mut inherent) = (rng(c), rng(c));
+        if c["kind"] == "fill_exponential_f64" {
+            let got: Vec<f64> = Exp1.sample_iter(&mut r).take(n(c)).collect();
+            let scalar: Vec<f64> = (0..n(c)).map(|_| inherent.exponential_f64()).collect();
+            assert_eq!(bits64(&got), bits64(&scalar), "{}", id(c));
+            assert!(
+                got.iter().zip(f64s(c)).all(|(g, w)| same_f64(*g, w)),
+                "{}",
+                id(c)
+            );
+        } else {
+            let got: Vec<f32> = (0..n(c)).map(|_| r.sample(Exp1)).collect();
+            let scalar: Vec<f32> = (0..n(c)).map(|_| inherent.exponential_f32()).collect();
+            assert_eq!(bits32(&got), bits32(&scalar), "{}", id(c));
+            assert!(
+                got.iter().zip(f32s(c)).all(|(g, w)| same_f32(*g, w)),
+                "{}",
+                id(c)
+            );
         }
-    }
-    for (pos, want, end) in EXPONENTIAL_F32 {
-        let (mut rng, mut inherent) = (at(*pos), at(*pos));
-        let got: Vec<f32> = (0..want.len()).map(|_| rng.sample(Exp1)).collect();
-        let scalar: Vec<f32> = want.iter().map(|_| inherent.exponential_f32()).collect();
-        assert_eq!(bits32(&got), bits32(&scalar), "f32 at {pos}");
-        assert_eq!((rng, rng.position()), (inherent, *end));
-        if cfg!(feature = "std") {
-            assert_eq!(bits32(&got), bits32(want), "f32 fixture at {pos}");
-        }
+        assert_eq!(r, inherent);
     }
 }
 
 #[test]
 fn below_is_the_inherent_draw_on_the_fixtures() {
-    for (n, want, end) in BELOW_U32 {
-        let mut rng = start();
-        let got: Vec<u32> = Below(*n).sample_iter(&mut rng).take(want.len()).collect();
-        assert_eq!((&got[..], rng.position()), (*want, *end), "Below({n}u32)");
+    for c in cases("below.json") {
+        let (mut r, range) = (rng(&c), hex(&c["range"]));
+        let got: Vec<u64> = if c["kind"] == "below_u32" {
+            Below(range as u32)
+                .sample_iter(&mut r)
+                .take(n(&c))
+                .map(u64::from)
+                .collect()
+        } else {
+            (0..n(&c)).map(|_| r.sample(Below(range))).collect()
+        };
+        assert_eq!(got, hexes(&c["values"]), "{}", id(&c));
+        assert_eq!(r.position(), int(&c, "end"), "{}", id(&c));
     }
-    for (n, want, end) in BELOW_U64 {
-        let mut rng = start();
-        let got: Vec<u64> = (0..want.len()).map(|_| rng.sample(Below(*n))).collect();
-        assert_eq!((&got[..], rng.position()), (*want, *end), "Below({n}u64)");
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn choice_is_the_inherent_draw_on_the_fixtures() {
+    for c in cases("choice.json").iter().filter(|c| n(c) > 0) {
+        let w: Vec<f64> = hexes(&c["weights"])
+            .into_iter()
+            .map(f64::from_bits)
+            .collect();
+        let t = tandem_rng::ChoiceTable::new(&w).unwrap();
+        let got: Vec<u64> = t.sample_iter(rng(c)).take(n(c)).map(u64::from).collect();
+        assert_eq!(got, hexes(&c["values"]), "{}", id(c));
     }
 }
 
@@ -231,11 +236,9 @@ fn foreign_generators_get_standard_normals() {
 
 #[cfg(feature = "std")]
 mod hashes {
-    //! The dumps of tandem-c's tools/dump_normals.c: 1e6 `f64` and 2e6 - 1 `f32` normals from
-    //! each of five positions of the generator seeded `(2026, 7)`.
+    //! The `f64` and `f32` normal dumps of hashes.json through `rng.sample` and `sample_iter`.
     use super::*;
-
-    const STARTS: [u64; 5] = [0, 1, 77, 12345, 1 << 30];
+    use serde_json::Value;
 
     fn fnv(h: u64, bytes: &[u8]) -> u64 {
         bytes
@@ -243,33 +246,48 @@ mod hashes {
             .fold(h, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
     }
 
-    fn dump(start: u64) -> Tandem {
-        let mut rng = Tandem::new(2026 | 7 << 64);
-        rng.set_position(start);
-        rng
+    fn dump(id: &str) -> Value {
+        let all = load("hashes.json")["dumps"].as_array().unwrap().clone();
+        all.into_iter().find(|d| d["id"] == id).expect(id)
+    }
+
+    /// The generators of the dump at each of its starts.
+    fn starts(d: &Value) -> Vec<Tandem> {
+        let starts = d["starts"].as_array().unwrap();
+        starts
+            .iter()
+            .map(|s| Tandem::from_key(key(d), s.as_u64().unwrap(), int(d, "K") as u32))
+            .collect()
+    }
+
+    fn want(d: &Value) -> u64 {
+        hex(&d["fnv1a"])
     }
 
     #[test]
     fn f64_normals_hash_like_tandem_c() {
-        let h = STARTS.iter().fold(0xcbf2_9ce4_8422_2325, |h, &s| {
-            let mut rng = dump(s);
-            (0..1_000_000).fold(h, |h, _| {
-                let z: f64 = rng.sample(StandardNormal);
-                fnv(h, &z.to_le_bytes())
-            })
-        });
-        assert_eq!(h, 0xa61c_fa84_4c85_f7c1, "hash {h:016x}");
+        let d = dump("tools/dump_normals.c");
+        let h = starts(&d)
+            .into_iter()
+            .fold(0xcbf2_9ce4_8422_2325, |h, mut r| {
+                (0..1_000_000).fold(h, |h, _| {
+                    let z: f64 = r.sample(StandardNormal);
+                    fnv(h, &z.to_le_bytes())
+                })
+            });
+        assert_eq!(h, want(&d), "hash {h:016x}");
     }
 
     #[test]
     fn f32_normals_hash_like_tandem_c() {
-        let h = STARTS.iter().fold(0xcbf2_9ce4_8422_2325, |h, &s| {
+        let d = dump("tests/test_normal_bits.c normal f32");
+        let h = starts(&d).into_iter().fold(0xcbf2_9ce4_8422_2325, |h, r| {
             StandardNormal
-                .sample_iter(dump(s))
+                .sample_iter(r)
                 .flat_map(|p: [f32; 2]| p)
                 .take(1_999_999)
                 .fold(h, |h, z| fnv(h, &z.to_le_bytes()))
         });
-        assert_eq!(h, 0xaa1e_a656_ce73_a4fb, "hash {h:016x}");
+        assert_eq!(h, want(&d), "hash {h:016x}");
     }
 }

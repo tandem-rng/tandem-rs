@@ -48,7 +48,7 @@ jobs:
           components: clippy
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo test --no-default-features
-      - run: cargo test --no-default-features --features rand
+      - run: cargo test --no-default-features --features alloc,rand
   gpu:
     name: ${{ matrix.os }} / wgpu
     runs-on: ${{ matrix.os }}
@@ -109,17 +109,14 @@ jobs:
           python3 tools/gen_zig_tables.py ../tandem-spec/tables/normal_f64_zig1024.json > src/zig_tables.rs
           rustfmt --edition 2024 src/zig_tables.rs
           git diff --exit-code src/zig_tables.rs
-  derived:
-    name: derived data is current
+  conformance:
+    name: conformance files are the spec's
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - run: |
-          git clone -q https://github.com/tandem-rng/tandem-c ../tandem-c
-          git -C ../tandem-c checkout -q 121db5902d6136c7e5258970c0160121af3ab1d0
-          python3 tools/gen_derived.py ../tandem-c/tests > tests/derived_data/mod.rs
-          rustfmt --edition 2024 tests/derived_data/mod.rs
-          git diff --exit-code tests/derived_data/mod.rs
+          git clone -q https://github.com/tandem-rng/spec ../tandem-spec
+          git -C ../tandem-spec checkout -q f4205457e1e2ed19e655e36820015d7bdcf037dd
+          for f in below fill_below normal exponential choice hashes; do
+            cmp tests/conformance/$f.json ../tandem-spec/conformance/$f.json
+          done

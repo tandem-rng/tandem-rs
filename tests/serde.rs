@@ -17,7 +17,9 @@ fn round_trip_continues_the_stream() {
 }
 
 #[test]
-fn bad_chunk_length_is_an_error() {
-    let json = r#"{"key":[1,2,3,4],"position":0,"chunk_length":3}"#;
-    assert!(serde_json::from_str::<Tandem>(json).is_err());
+fn bad_chunk_length_or_start_is_an_error() {
+    for (position, k) in [(0, 3), (1u64 << 63, 32)] {
+        let json = format!(r#"{{"key":[1,2,3,4],"position":{position},"chunk_length":{k}}}"#);
+        assert!(serde_json::from_str::<Tandem>(&json).is_err(), "{json}");
+    }
 }
