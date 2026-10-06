@@ -8,40 +8,56 @@ cargo test
 
 - The specification vectors in `tests/vectors_data`, generated from the spec's `vectors.json`.
 - Long fills, scalar draws and random access against the stream dumps in `tests/data`.
-- Bounded integers, normals and exponentials against the tandem-c cross fixtures, with the
-  hashes of `tests/normal_bits.rs` and `tests/exponential_bits.rs`.
-- Feature tests: `--features rand`, `rayon`, `serde`, `simd-intrinsics` and `wgpu`. The `wgpu` test skips
-  without an adapter.
+- The spec's conformance cases in `tests/conformance`, and every item of its
+  [checklist](https://github.com/tandem-rng/spec/blob/main/conformance/CHECKLIST.md).
+- Feature tests: `--features rand`, `rayon`, `serde`, `simd-intrinsics` and `wgpu`. The `wgpu`
+  test skips without an adapter.
 
 `tests/vectors.rs` checks every vector of the specification.
 `tests/streams.rs` compares long fills, scalar draws and random access against reference
-stream dumps in `tests/data`, complex fills included. `tests/derived.rs` compares bounded
-integers, bounded fills and normals with the cross-check values of `tandem-c`, and the fills
-with their definitions. The `f64` normal rows of `tests/cross_normal.h` start at unaligned
-positions and include a wedge accept, a wedge reject and a tail, for fills and scalar draws.
-With `std` the normals compare bit for bit. Without it they compare within the tolerance of
-Appendix A. It also checks `f64` normal fills cut anywhere, the alignment of an empty fill,
-and the mean and variance of 2^20 normals.
+stream dumps in `tests/data`, complex fills included.
 
-`tests/normal_bits.rs` (with `std`) compares FNV-1a hashes with tandem-c's
-`tests/test_normal_bits.c`: 1e6 `f64` normals from five positions, 2e5 `f64` normals at two
-positions of the spec's Python reference, and 2e6 - 1 `f32` normals from the five positions.
+`tests/conformance.rs` reads the six conformance files of the spec: scalar and filled
+bounded integers, `f64` and `f32` normals, exponentials, weighted choices, and the hashes of
+long outputs. Every fill case checks its values, its end position, its scalar draws, and
+the fill cut at elements 1, 7, 20, 21 and n − 1 and continued on one generator. An `f32`
+normal fill is cut at pairs only, since a cut inside a pair drops a sin half. The tests then
+show each checklist item:
 
-`tests/derived.rs` also compares the exponential fills and scalar draws with tandem-c's
-`tests/cross_exponential.h`, bit for bit with `std`, at five positions, and checks fills cut
-anywhere, a length of 0, and the Exp(1) moments to the fourth order and a Kolmogorov-Smirnov
-statistic on 1e7 `f64` and 1e7 `f32` samples. `tests/exponential_bits.rs` (with `std`) hashes
-1e6 `f64` and 1e6 `f32` exponentials from five positions and compares with the hash in
-tandem-c's `tests/test_exponential_bits.c`.
+- Fallback by global draw index: the rejected bounded elements and the ziggurat misses, and a
+  start one draw later that shifts the output by one element.
+- Width: the bounded draws name their width, so range 1000 gives `CROSS_BELOW32[3]` as `u32`
+  and `CROSS_BELOW64[3]` as `u64`. Range 0 returns 0 after one draw.
+- n = 0: the seven empty cases. An empty `f64` normal or choice fill aligns the position, and
+  an empty bounded, `f32` normal or exponential fill leaves it.
+- Odd n and the Box-Muller pair rule: `CROSS_NORMAL32` and `CROSS_NORMALF`.
+- Weighted choice: the tables and indices of all 24 cases, `m = 1`, and rejected weights.
+- Boundaries: the SHA-256 of the twelve uniform streams and the FNV-1a and SHA-256 of the
+  normal and exponential dumps (with `std`). Also a complex draw across a block, and start
+  positions of 2^63 − 1, 2^63 and 2^64 − 1. Random access across rows and chunks is in
+  `tests/streams.rs`.
+
+A fill whose end reaches 2^64 cannot be tested: starts lie below 2^63, and a slice cannot
+hold the 2^57 or more elements needed to reach 2^64 from there.
+
+With `std` the normals and exponentials compare bit for bit. Without it they compare within
+the tolerance of Appendix A.
+
+`tests/derived.rs` checks the derived draws against their definitions and laws: the bounded
+fills against Lemire's rule with the fallback, the `f32` normal against the Box-Muller formula
+in `f64`, fills cut across their internal passes, the mean and variance of 2^20 normals, the
+Exp(1) moments to the fourth order with a Kolmogorov-Smirnov statistic on 1e7 samples, and a
+chi-square test of 1e6 weighted choices.
 
 `tests/rand_core.rs` checks the trait implementations against the inherent API.
 `tests/distr.rs` (with `--features rand`) compares every distribution with its inherent draw
-on the tandem-c fixtures, `sample_iter` with the fills at lengths that cut their passes, and
+on the conformance cases, `sample_iter` with the fills at lengths that cut their passes, and
 with `std` the two normal dump hashes. It also checks that a foreign generator gets normals of
 unit variance.
 `tests/parallel.rs` (with `--features rayon`) compares each parallel fill with the serial fill
 at offsets and lengths that cut rows and tasks, and checks the final position.
-`tests/serde.rs` (with `--features serde`) round-trips a generator through JSON.
+`tests/serde.rs` (with `--features serde`) round-trips a generator through JSON and rejects a
+bad chunk length or start position.
 `tests/intrinsics.rs` (with `--features simd-intrinsics`) compares every fill with the
 stream built from the scalar `block`, at offsets and lengths that cut rows and chunks.
 `tests/gpu.rs` (with `--features wgpu`) compares GPU fills with the CPU fills over keys, chunk
@@ -49,11 +65,11 @@ lengths, positions and lengths, and with the dumps. It skips without an adapter.
 
 ## Fixtures
 
-`tests/vectors_data/mod.rs` is generated from the spec repository's `vectors.json` by
-`tools/gen_vectors.py`. `tools/gen_derived.py` converts the cross-check values of `tandem-c`.
-`tools/gen_zig_tables.py` writes `src/zig_tables.rs` from the spec's
-`tables/normal_f64_zig1024.json`, and CI checks all three are current.
+`tests/conformance/*.json` are byte-identical copies of tandem-spec f420545
+`conformance/*.json`, which tandem-c 1adf2ac generates. CI compares them with the spec at that
+commit. `tests/vectors_data/mod.rs` is generated from the spec repository's `vectors.json` by
+`tools/gen_vectors.py`. `tools/gen_zig_tables.py` writes `src/zig_tables.rs` from the spec's
+`tables/normal_f64_zig1024.json`. CI checks that both are current.
 `cargo run --release --example dump_normals | shasum -a 256` writes the same bytes as
-tandem-c's `tools/dump_normals.c`, SHA-256
-`700ec4d2f4d6b82aaa56c6eff18a4e5919585fdbd093988773383d580ea610d1`. `cargo run --release --example dump_exponentials
-| shasum -a 256` writes the same bytes as tandem-c's `tools/dump_exponentials.c`.
+tandem-c's `tools/dump_normals.c`, and `cargo run --release --example dump_exponentials |
+shasum -a 256` the same bytes as tandem-c's `tools/dump_exponentials.c`.

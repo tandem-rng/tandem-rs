@@ -73,6 +73,20 @@ which defeats store forwarding and doubles the cost of a scalar draw.
   a correct but slower library call, which the ziggurat meets only on its rare slow path.
   Without `std` the plain form differs from tandem-c in the last bits.
 
+## Weighted choice
+
+- `ChoiceTable` is the alias table of Appendix C, built in exact integers so that every port
+  gets the same `capacity`, `cut` and `alias`. Two passes scale the masses: the first bounds
+  the sum, and the second brings it just below 2^63 for weights of any magnitude. A weight's
+  mass is the ceiling of `w · 2^t`, computed from its 53-bit significand, so a subnormal weight
+  keeps a mass of at least 1 where `w · 2^t` in floats would round to 0. The columns pair in
+  place, as tandem-c does.
+- A draw maps one `u64` to a column by the high word of `r · m`, and compares the low word
+  times `capacity` with the column's cut. There is no retry, so element `i` of a fill is draw
+  `i` of the `u64` fill and a fill cut anywhere equals the whole. The table and the draw use
+  no floating point, so there is no `std` difference.
+- The table needs an allocator, hence the `alloc` feature.
+
 ## Exponentials
 
 - Exponentials of rate 1, `-ln(1 - u)` from one uniform each, defined in Appendix A of the
