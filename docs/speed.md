@@ -6,22 +6,26 @@
 ## CPU
 
 One thread, `cargo run --release --example bench`, minimum of seven runs of 2^24 elements,
-in GiB/s of output. A `next_f64` draw counts 8 bytes. Every Apple M4 Pro figure on this page
-comes from one session and is the median of three runs.
+in GiB/s of output. A `next_u64` or `next_f64` draw counts 8 bytes. Each Apple M4 Pro table
+comes from one session and gives the median of three runs.
 
 The baselines are `rand`'s `SmallRng` (xoshiro256++) and `StdRng` (ChaCha12): `fill` for the
 integers, one `random()` per element for the floats, `rand_distr::Exp1` for the exponentials.
-`SmallRng` leads the scalar chain, whose xoshiro256++ step inlines into the loop.
+A chain sums 2^24 dependent draws. The 32- and 64-bit draws inline into the loop, which keeps
+the position in a register. Their one call, the row refill, also steps the cache one row ahead
+into the other of its two row slots, so no draw reads a row just stored. Before that, the
+`next_f64` chain ran at 6.9 GiB/s.
 
 | Apple M4 Pro | default | `simd-intrinsics` | `SmallRng` | `StdRng` |
 |---|---|---|---|---|
-| `fill_u32` | 19.3 | 19.2 | 10.7 | 2.7 |
-| `fill_u64` | 19.2 | 19.2 | 10.6 | 2.7 |
-| `fill_f32` | 16.7 | 16.4 | 5.4 | 2.1 |
-| `fill_f64` | 16.5 | 16.5 | 10.7 | 2.3 |
-| `fill_exponential_f32` | 6.6 | 6.4 | 3.1 | 0.88 |
-| `fill_exponential_f64` | 6.0 | 5.9 | 6.0 | 1.8 |
-| `next_f64` chain | 6.9 | 6.6 | 10.4 | 2.5 |
+| `fill_u32` | 19.3 | 19.2 | 10.5 | 2.7 |
+| `fill_u64` | 19.2 | 19.1 | 10.6 | 2.7 |
+| `fill_f32` | 16.6 | 16.8 | 5.4 | 2.0 |
+| `fill_f64` | 16.7 | 16.7 | 10.7 | 2.3 |
+| `fill_exponential_f32` | 6.4 | 6.5 | 3.0 | 0.88 |
+| `fill_exponential_f64` | 5.9 | 5.9 | 6.0 | 1.8 |
+| `next_u64` chain | 10.3 | 10.1 | 10.7 | 2.6 |
+| `next_f64` chain | 9.5 | 9.3 | 10.4 | 2.5 |
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 | `SmallRng` | `StdRng` |
 |---|---|---|---|---|---|
@@ -34,22 +38,23 @@ integers, one `random()` per element for the floats, `rand_distr::Exp1` for the 
 | `next_f64` chain | 1.6 | 1.6 | 2.1 | 5.9 | 2.3 |
 
 Every EPYC figure comes from one session on one pinned core and is the median of three runs.
+That session predates the inline scalar draws, so the chain row shows the old draws.
 The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Only the AVX2 build leads
 `SmallRng` on the fills.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
 thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column
 loops over the scalar method, the `Distribution` column over `rng.sample`. Both inline into the
-caller, so they cost the same. `StandardNormal.sample_iter` writes 4.38. The last two columns are
+caller, so they cost the same. `StandardNormal.sample_iter` writes 4.98. The last two columns are
 the `rand_distr` distribution, or `random_range(0..1000)`, on `SmallRng` and `StdRng`. The `f32`
 normals of Tandem are pairs.
 
 | Apple M4 Pro | inherent | `Distribution` | fill | `SmallRng` | `StdRng` |
 |---|---|---|---|---|---|
-| normal `f64` | 4.38 | 4.35 | 7.38 | 6.89 | 1.85 |
-| normal `f32` | 1.68 | 1.65 | 4.59 | 3.45 | 0.92 |
-| exponential `f64` | 3.13 | 3.13 | 5.89 | 6.02 | 1.76 |
-| `Below(1000u32)` | 3.82 | 4.03 | 5.43 | 1.49 | 2.05 |
+| normal `f64` | 4.92 | 4.93 | 7.25 | 6.82 | 1.85 |
+| normal `f32` | 1.78 | 1.77 | 4.51 | 3.46 | 0.92 |
+| exponential `f64` | 3.51 | 3.54 | 5.93 | 6.11 | 1.71 |
+| `Below(1000u32)` | 5.43 | 5.40 | 5.40 | 1.51 | 2.04 |
 
 With `rayon`, `cargo run --release --features rayon --example bench_par`, 2^25 elements on
 14 threads of an Apple M4 Pro, in GiB/s of output. The parallel `SmallRng` fill seeds one
