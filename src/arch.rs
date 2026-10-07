@@ -241,6 +241,22 @@ mod avx2 {
         unsafe { run_avx2(rng, row, nrows, sink) }
     }
 
+    /// One step of the cache to the next row of its group, on 256-bit registers.
+    ///
+    /// # Panics
+    ///
+    /// Without AVX2, which `available` reports.
+    pub(crate) fn step_avx2(rng: &mut Tandem) {
+        assert!(available(), "AVX2 is required");
+        // SAFETY: AVX2 was just checked.
+        unsafe { step(rng) }
+    }
+
+    #[target_feature(enable = "avx2")]
+    unsafe fn step(rng: &mut Tandem) {
+        rng.step_with::<Avx2Lanes>()
+    }
+
     // Every helper of `Avx2Lanes` is `inline(always)`, so it lands in this function, which
     // has the feature.
     #[target_feature(enable = "avx2")]
@@ -253,8 +269,8 @@ mod avx2 {
         rng.run_rows_with::<Avx2Lanes, S>(row, nrows, sink)
     }
 
-    // The methods are safe to call only from `run_rows_avx2`, the one place that builds an
-    // `Avx2Lanes`, and so always run with AVX2 enabled.
+    // The methods are safe to call only from `run_rows_avx2` and `step_avx2`, the places that
+    // build an `Avx2Lanes`, and so always run with AVX2 enabled.
     impl Avx2Lanes {
         /// Low and high words of the eight 32x32 to 64-bit products: `pmuludq` takes the even
         /// lanes, so the odd ones go through a shift.
@@ -279,25 +295,43 @@ mod avx2 {
     }
 
     impl Rows for Avx2Lanes {
+        /// The inverse of `blocks`: vector j holds lanes 2j and 2j + 1, so a 4x4 transpose
+        /// within each 128-bit half gives the even lanes low and the odd lanes high, and one
+        /// permute per word restores lane order.
         #[inline(always)]
-        fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Self {
-            // SAFETY: AVX2 is enabled, and the arrays hold 32 bytes each.
+        fn load(o: &[u32; 32], h: &[[u32; 8]; 4]) -> Self {
+            // SAFETY: AVX2 is enabled, and every load reads 32 bytes inside the arrays.
             unsafe {
-                let ld = |w: &[u32; 8]| _mm256_loadu_si256(w.as_ptr().cast());
+                let v: [__m256i; 4] = core::array::from_fn(|j| {
+                    _mm256_loadu_si256(o[8 * j..8 * j + 8].as_ptr().cast())
+                });
+                let t0 = _mm256_unpacklo_epi32(v[0], v[1]);
+                let t1 = _mm256_unpackhi_epi32(v[0], v[1]);
+                let t2 = _mm256_unpacklo_epi32(v[2], v[3]);
+                let t3 = _mm256_unpackhi_epi32(v[2], v[3]);
+                let order = _mm256_setr_epi32(0, 4, 1, 5, 2, 6, 3, 7);
+                let lanes = |x: __m256i| _mm256_permutevar8x32_epi32(x, order);
                 Avx2Lanes {
-                    o: o.each_ref().map(ld),
-                    h: h.each_ref().map(ld),
+                    o: [
+                        lanes(_mm256_unpacklo_epi64(t0, t2)),
+                        lanes(_mm256_unpackhi_epi64(t0, t2)),
+                        lanes(_mm256_unpacklo_epi64(t1, t3)),
+                        lanes(_mm256_unpackhi_epi64(t1, t3)),
+                    ],
+                    h: h.each_ref().map(|w| _mm256_loadu_si256(w.as_ptr().cast())),
                 }
             }
         }
 
         #[inline(always)]
-        fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]) {
+        fn save(&self, o: &mut [u32; 32], h: &mut [[u32; 8]; 4]) {
+            for (j, b) in self.blocks().iter().enumerate() {
+                o[4 * j..4 * j + 4].copy_from_slice(&b.to_array());
+            }
             // SAFETY: AVX2 is enabled, and the arrays hold 32 bytes each.
             unsafe {
-                for w in 0..4 {
-                    _mm256_storeu_si256(o[w].as_mut_ptr().cast(), self.o[w]);
-                    _mm256_storeu_si256(h[w].as_mut_ptr().cast(), self.h[w]);
+                for (hw, v) in h.iter_mut().zip(self.h) {
+                    _mm256_storeu_si256(hw.as_mut_ptr().cast(), v);
                 }
             }
         }
@@ -392,5 +426,5 @@ mod avx2 {
 #[cfg(all(feature = "std", target_arch = "x86_64"))]
 pub(crate) use avx2::{
     available as avx2_available, block_f32_fma, exponential_block_f32_fma,
-    exponential_block_f64_fma, fma_available, run_rows_avx2,
+    exponential_block_f64_fma, fma_available, run_rows_avx2, step_avx2,
 };

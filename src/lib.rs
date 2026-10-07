@@ -286,23 +286,41 @@ pub(crate) fn f_lanes(o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4], steps: u32) 
 }
 
 /// What `run_rows` needs of the eight lane states of a group, so the same loop runs on the
-/// portable vectors and on the AVX2 registers.
+/// portable vectors and on the AVX2 registers. `load` and `save` take the exposed words in
+/// stream order, as the scalar draws read them, and the hidden words word-major.
 pub(crate) trait Rows {
-    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Self;
-    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]);
+    fn load(o: &[u32; 32], h: &[[u32; 8]; 4]) -> Self;
+    fn save(&self, o: &mut [u32; 32], h: &mut [[u32; 8]; 4]);
     fn step(&mut self);
     fn seed(&mut self, key: &[u32; 4], g: u64);
     fn blocks(&self) -> [u32x4; 8];
 }
 
 impl Rows for Lanes {
+    /// Each quad's four blocks transpose back to its word vectors.
     #[inline(always)]
-    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Lanes {
-        Lanes::load(o, h)
+    fn load(o: &[u32; 32], h: &[[u32; 8]; 4]) -> Lanes {
+        let quad = |k: usize| Quad {
+            o: transpose(core::array::from_fn(|j| {
+                let b = 16 * k + 4 * j;
+                u32x4::new([o[b], o[b + 1], o[b + 2], o[b + 3]])
+            })),
+            h: h.map(|w| u32x4::new([w[4 * k], w[4 * k + 1], w[4 * k + 2], w[4 * k + 3]])),
+        };
+        Lanes {
+            q: [quad(0), quad(1)],
+        }
     }
     #[inline(always)]
-    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]) {
-        Lanes::save(self, o, h)
+    fn save(&self, o: &mut [u32; 32], h: &mut [[u32; 8]; 4]) {
+        for (j, b) in self.blocks().iter().enumerate() {
+            o[4 * j..4 * j + 4].copy_from_slice(&b.to_array());
+        }
+        for (k, q) in self.q.iter().enumerate() {
+            for (hw, qw) in h.iter_mut().zip(&q.h) {
+                hw[4 * k..4 * k + 4].copy_from_slice(&qw.to_array());
+            }
+        }
     }
     #[inline(always)]
     fn step(&mut self) {
@@ -505,13 +523,13 @@ impl Elem for f64 {
 /// Equality and `Debug` cover the transport form only. Every method that draws aligns the
 /// position to the width of the value, reads, and advances past it, as the specification
 /// requires, so draws of mixed widths from one generator agree with the other references.
-// The cache holds the state of row `ahead` in `o` and `h`, word-major, when `cached` is set,
-// and the exposed words of rows `ahead` and `ahead - 1` in stream order in `out[row & 1]`.
-// `base` is the bit position of the row the scalar draws read: `ahead`, or `ahead - 1` while
-// the next row waits. With nothing to read, `base` names a row before `pos`, which draws never
-// reach. The C layout keeps `k` and `cached` between `pos` and `base`. Otherwise the compiler
-// pairs their loads into one 16-byte load right after the 8-byte store of `pos`, which defeats
-// store forwarding and doubles the cost of a scalar draw.
+// The cache holds the state of row `ahead` when `cached` is set: its exposed words in stream
+// order in `o[ahead & 1]` and its hidden words word-major in `h`. `base` is the bit position of
+// the row the scalar draws read, `o[(base >> 10) & 1]`: row `ahead`, or row `ahead - 1` while
+// the next row waits in the other slot. With nothing to read, `base` names a row before `pos`,
+// which draws never reach. The layout is the 432 bytes of tandem-c. It keeps `k` and `cached`
+// between `pos` and `base`. Otherwise the compiler pairs their loads into one 16-byte load
+// right after the 8-byte store of `pos`, which defeats store forwarding.
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Tandem {
@@ -519,11 +537,10 @@ pub struct Tandem {
     pos: u64,
     k: u32,
     cached: bool,
-    base: u64,
     ahead: u64,
-    o: [[u32; 8]; 4],
+    base: u64,
+    o: [[u32; 32]; 2],
     h: [[u32; 8]; 4],
-    out: [[u32; 32]; 2],
 }
 
 /// The row before the row of `pos`, which forward draws never reach.
@@ -580,9 +597,8 @@ impl Tandem {
             cached: false,
             base: empty_base(position),
             ahead: 0,
-            o: [[0; 8]; 4],
+            o: [[0; 32]; 2],
             h: [[0; 8]; 4],
-            out: [[0; 32]; 2],
         }
     }
 
@@ -643,7 +659,7 @@ impl Tandem {
         let k = u64::from(self.k);
         let shift = self.k.trailing_zeros();
         let mask = k - 1;
-        let mut lanes = L::load(&self.o, &self.h);
+        let mut lanes = L::load(&self.o[(self.ahead & 1) as usize], &self.h);
         let mut at = self.ahead;
         let mut live = self.cached;
         while nrows > 0 {
@@ -673,31 +689,28 @@ impl Tandem {
             row += run;
             nrows -= run;
         }
-        lanes.save(&mut self.o, &mut self.h);
         self.ahead = at;
-        self.store_out(&lanes.blocks());
+        lanes.save(&mut self.o[(at & 1) as usize], &mut self.h);
         self.base = at << 10;
         self.cached = true;
     }
 
-    /// The exposed words of row `ahead` into its slot.
-    #[inline(always)]
-    fn store_out(&mut self, blocks: &[u32x4; 8]) {
-        let words = &mut self.out[(self.ahead & 1) as usize];
-        for (j, b) in blocks.iter().enumerate() {
-            words[4 * j..4 * j + 4].copy_from_slice(&b.to_array());
-        }
-    }
-
     /// One step of the cached state to the next row of its group, the refill's common case.
-    /// The portable lanes serve every target here.
     #[inline(always)]
     fn step_ahead(&mut self) {
-        let mut lanes = Lanes::load(&self.o, &self.h);
+        #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+        if arch::avx2_available() {
+            return arch::step_avx2(self);
+        }
+        self.step_with::<Lanes>()
+    }
+
+    #[inline(always)]
+    pub(crate) fn step_with<L: Rows>(&mut self) {
+        let mut lanes = L::load(&self.o[(self.ahead & 1) as usize], &self.h);
         lanes.step();
-        lanes.save(&mut self.o, &mut self.h);
         self.ahead += 1;
-        self.store_out(&lanes.blocks());
+        lanes.save(&mut self.o[(self.ahead & 1) as usize], &mut self.h);
     }
 
     #[inline(always)]
@@ -726,7 +739,7 @@ impl Tandem {
 
     #[inline(always)]
     fn word_at(&self, p: u64) -> u32 {
-        self.out[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
+        self.o[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
     }
 
     /// `w` bits (a power of two, 1 to 64) at the aligned position `p`.
@@ -787,7 +800,7 @@ impl Tandem {
             self.load_row(p >> 10);
         }
         self.pos = p + 32;
-        self.out[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
+        self.o[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
     }
     /// An aligned 64-bit draw.
     #[inline]
@@ -798,7 +811,7 @@ impl Tandem {
             self.load_row(p >> 10);
         }
         self.pos = p + 64;
-        let w = &self.out[((p >> 10) & 1) as usize];
+        let w = &self.o[((p >> 10) & 1) as usize];
         let i = ((p >> 5) & 30) as usize;
         u64::from(w[i]) | u64::from(w[i + 1]) << 32
     }
