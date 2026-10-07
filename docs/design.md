@@ -6,7 +6,7 @@
   multiply-adds and the square root from the standard library. Two dependencies: `rand_core`
   for the traits and `wide` for portable vectors, which lower to NEON, SSE/AVX2 or scalar code.
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`)
-  plus a cache of the current 1024-bit row. It is `Copy`.
+  plus a cache of two 1024-bit rows, 432 bytes in all, the layout of tandem-c. It is `Copy`.
 - The `simd-intrinsics` feature spells the widening multiply and the float row stores with
   NEON or SSE2 intrinsics. With `std` on x86_64 it also runs the row step, the seeding and
   the transpose on 256-bit AVX2 registers when the CPU has them, chosen at run time, so the
@@ -31,9 +31,16 @@ unzips, or two `pmuludq`). On AArch64 LLVM already uses `umull` for the high hal
 integers do not gain there. On SSE2 the portable multiply costs four `pmuludq` per
 product.
 
+The 32- and 64-bit draws inline into the caller. A draw at an aligned position in the readable
+row is a load and an add, and the one call is the row refill, after which the draw stores the
+position, so a loop keeps the position in a register. The refill makes its row readable and
+steps the cache one row ahead into the other row slot. The next refill then finds its row
+computed, and no draw reads words just written by vector stores, which store forwarding serves
+badly. The slots hold the exposed words in stream order, the order the draws read.
+
 The struct is `repr(C)`: with the default layout the compiler pairs the loads of the position
-and the cached row index into one 16-byte load right after the 8-byte store of the position,
-which defeats store forwarding and doubles the cost of a scalar draw.
+and the readable row's position into one 16-byte load right after the 8-byte store of the
+position, which defeats store forwarding and doubles the cost of a scalar draw.
 
 ## Bounded integers
 

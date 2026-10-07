@@ -27,6 +27,8 @@ let mut worker = rng.split(7);                 // by index, from the key alone
 let z = worker.normal_f64();                   // ziggurat, bit identical to tandem-c with std
 ```
 
+- Inline 32- and 64-bit scalar draws, within a few percent of `SmallRng` in a loop on an Apple M4.
+
 See [API](docs/api.md) for the `rand` traits, features and GPU fill, and
 [design](docs/design.md), [tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
 

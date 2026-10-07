@@ -218,3 +218,41 @@ fn fills_split_anywhere() {
         assert_eq!(part, whole[start..], "offset {start}");
     }
 }
+
+#[test]
+fn cache_history() {
+    // Draws of every width and fills in any order, backward jumps included, read what a fresh
+    // generator at the same position reads, whatever rows the cache holds or stepped ahead to.
+    // K = 1 opens a new group every row.
+    for k in [1, 32] {
+        let mut rng = Tandem::from_key(KEY, 0, k);
+        let mut lcg = 1u64;
+        let (mut got, mut want) = ([0u64; 40], [0u64; 40]);
+        for step in 0..4000 {
+            let mut fresh = Tandem::from_key(KEY, rng.position(), k);
+            lcg = lcg
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            match lcg >> 61 {
+                0 => assert_eq!(rng.next_u8(), fresh.next_u8()),
+                1 => assert_eq!(rng.next_u16(), fresh.next_u16()),
+                2 => assert_eq!(rng.next_u32(), fresh.next_u32()),
+                3 => assert_eq!(rng.next_f32(), fresh.next_f32()),
+                4 => assert_eq!(rng.next_f64(), fresh.next_f64()),
+                5 => {
+                    let n = (lcg >> 32) as usize % 40;
+                    rng.fill_u64(&mut got[..n]);
+                    fresh.fill_u64(&mut want[..n]);
+                    assert_eq!(got[..n], want[..n]);
+                }
+                6 => {
+                    let back = rng.position().min((lcg >> 32) % 3000);
+                    rng.set_position(rng.position() - back);
+                    fresh.set_position(rng.position());
+                }
+                _ => assert_eq!(rng.next_u64(), fresh.next_u64()),
+            }
+            assert_eq!(rng.position(), fresh.position(), "K = {k}, step {step}");
+        }
+    }
+}

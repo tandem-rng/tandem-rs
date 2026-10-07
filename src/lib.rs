@@ -286,23 +286,41 @@ pub(crate) fn f_lanes(o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4], steps: u32) 
 }
 
 /// What `run_rows` needs of the eight lane states of a group, so the same loop runs on the
-/// portable vectors and on the AVX2 registers.
+/// portable vectors and on the AVX2 registers. `load` and `save` take the exposed words in
+/// stream order, as the scalar draws read them, and the hidden words word-major.
 pub(crate) trait Rows {
-    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Self;
-    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]);
+    fn load(o: &[u32; 32], h: &[[u32; 8]; 4]) -> Self;
+    fn save(&self, o: &mut [u32; 32], h: &mut [[u32; 8]; 4]);
     fn step(&mut self);
     fn seed(&mut self, key: &[u32; 4], g: u64);
     fn blocks(&self) -> [u32x4; 8];
 }
 
 impl Rows for Lanes {
+    /// Each quad's four blocks transpose back to its word vectors.
     #[inline(always)]
-    fn load(o: &[[u32; 8]; 4], h: &[[u32; 8]; 4]) -> Lanes {
-        Lanes::load(o, h)
+    fn load(o: &[u32; 32], h: &[[u32; 8]; 4]) -> Lanes {
+        let quad = |k: usize| Quad {
+            o: transpose(core::array::from_fn(|j| {
+                let b = 16 * k + 4 * j;
+                u32x4::new([o[b], o[b + 1], o[b + 2], o[b + 3]])
+            })),
+            h: h.map(|w| u32x4::new([w[4 * k], w[4 * k + 1], w[4 * k + 2], w[4 * k + 3]])),
+        };
+        Lanes {
+            q: [quad(0), quad(1)],
+        }
     }
     #[inline(always)]
-    fn save(&self, o: &mut [[u32; 8]; 4], h: &mut [[u32; 8]; 4]) {
-        Lanes::save(self, o, h)
+    fn save(&self, o: &mut [u32; 32], h: &mut [[u32; 8]; 4]) {
+        for (j, b) in self.blocks().iter().enumerate() {
+            o[4 * j..4 * j + 4].copy_from_slice(&b.to_array());
+        }
+        for (k, q) in self.q.iter().enumerate() {
+            for (hw, qw) in h.iter_mut().zip(&q.h) {
+                hw[4 * k..4 * k + 4].copy_from_slice(&qw.to_array());
+            }
+        }
     }
     #[inline(always)]
     fn step(&mut self) {
@@ -505,9 +523,13 @@ impl Elem for f64 {
 /// Equality and `Debug` cover the transport form only. Every method that draws aligns the
 /// position to the width of the value, reads, and advances past it, as the specification
 /// requires, so draws of mixed widths from one generator agree with the other references.
-// The C layout keeps `k` and `cached` between `pos` and `row`. Otherwise the compiler pairs
-// the loads of `pos` and `row` into one 16-byte load right after the 8-byte store of `pos`,
-// which defeats store forwarding and doubles the cost of a scalar draw.
+// The cache holds the state of row `ahead` when `cached` is set: its exposed words in stream
+// order in `o[ahead & 1]` and its hidden words word-major in `h`. `base` is the bit position of
+// the row the scalar draws read, `o[(base >> 10) & 1]`: row `ahead`, or row `ahead - 1` while
+// the next row waits in the other slot. With nothing to read, `base` names a row before `pos`,
+// which draws never reach. The layout is the 432 bytes of tandem-c. It keeps `k` and `cached`
+// between `pos` and `base`. Otherwise the compiler pairs their loads into one 16-byte load
+// right after the 8-byte store of `pos`, which defeats store forwarding.
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Tandem {
@@ -515,9 +537,15 @@ pub struct Tandem {
     pos: u64,
     k: u32,
     cached: bool,
-    row: u64,
-    o: [[u32; 8]; 4],
+    ahead: u64,
+    base: u64,
+    o: [[u32; 32]; 2],
     h: [[u32; 8]; 4],
+}
+
+/// The row before the row of `pos`, which forward draws never reach.
+fn empty_base(pos: u64) -> u64 {
+    ((pos >> 10).wrapping_sub(1)) << 10
 }
 
 impl Tandem {
@@ -567,8 +595,9 @@ impl Tandem {
             pos: position,
             k,
             cached: false,
-            row: 0,
-            o: [[0; 8]; 4],
+            base: empty_base(position),
+            ahead: 0,
+            o: [[0; 32]; 2],
             h: [[0; 8]; 4],
         }
     }
@@ -592,6 +621,9 @@ impl Tandem {
     pub fn set_position(&mut self, position: u64) {
         assert!(position < MAX_START, "start position must be below 2^63");
         self.pos = position;
+        if !self.cached {
+            self.base = empty_base(position);
+        }
     }
 
     /// The chunk length `K`.
@@ -627,8 +659,8 @@ impl Tandem {
         let k = u64::from(self.k);
         let shift = self.k.trailing_zeros();
         let mask = k - 1;
-        let mut lanes = L::load(&self.o, &self.h);
-        let mut at = self.row;
+        let mut lanes = L::load(&self.o[(self.ahead & 1) as usize], &self.h);
+        let mut at = self.ahead;
         let mut live = self.cached;
         while nrows > 0 {
             if !live || at != row {
@@ -657,29 +689,57 @@ impl Tandem {
             row += run;
             nrows -= run;
         }
-        lanes.save(&mut self.o, &mut self.h);
-        self.row = at;
+        self.ahead = at;
+        lanes.save(&mut self.o[(at & 1) as usize], &mut self.h);
+        self.base = at << 10;
         self.cached = true;
+    }
+
+    /// One step of the cached state to the next row of its group, the refill's common case.
+    #[inline(always)]
+    fn step_ahead(&mut self) {
+        #[cfg(all(feature = "simd-intrinsics", feature = "std", target_arch = "x86_64"))]
+        if arch::avx2_available() {
+            return arch::step_avx2(self);
+        }
+        self.step_with::<Lanes>()
+    }
+
+    #[inline(always)]
+    pub(crate) fn step_with<L: Rows>(&mut self) {
+        let mut lanes = L::load(&self.o[(self.ahead & 1) as usize], &self.h);
+        lanes.step();
+        self.ahead += 1;
+        lanes.save(&mut self.o[(self.ahead & 1) as usize], &mut self.h);
     }
 
     #[inline(always)]
     fn load_row(&mut self, row: u64) {
-        if !self.cached || self.row != row {
-            self.step_to(row);
+        if !self.cached || self.base != row << 10 {
+            self.refill(row);
         }
     }
 
-    // The inlined scalar draws reach the row step only through this call. If they reached the
-    // generic `run_rows` itself, every instance would be exported and the fills would compile
-    // slower: `fill_f64` lost 8 %.
+    // Make `row` readable and step the state one row ahead, so the next refill finds its row
+    // computed and no read waits on a recent store. The inlined scalar draws reach the row
+    // step only through this call. If they reached the generic `run_rows` itself, every
+    // instance would be exported and the fills would compile slower: `fill_f64` lost 8 %.
     #[inline(never)]
-    fn step_to(&mut self, row: u64) {
-        self.run_rows(row, 1, None::<fn(&[u32x4; 8])>);
+    fn refill(&mut self, row: u64) {
+        if !self.cached || self.ahead != row {
+            self.run_rows(row, 1, None::<fn(&[u32x4; 8])>);
+        }
+        if (row + 1) & (u64::from(self.k) - 1) != 0 {
+            self.step_ahead();
+        } else {
+            self.run_rows(row + 1, 1, None::<fn(&[u32x4; 8])>);
+        }
+        self.base = row << 10;
     }
 
     #[inline(always)]
     fn word_at(&self, p: u64) -> u32 {
-        self.o[((p >> 5) & 3) as usize][((p >> 7) & 7) as usize]
+        self.o[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
     }
 
     /// `w` bits (a power of two, 1 to 64) at the aligned position `p`.
@@ -728,15 +788,32 @@ impl Tandem {
     pub fn next_u16(&mut self) -> u16 {
         self.next(16) as u16
     }
+    // The 32- and 64-bit draws keep `pos` in a register across a loop: `pos - base` is a
+    // multiple of the width below 1024 exactly when `pos` is aligned and readable, the only
+    // call is the refill, and `pos` is stored after it.
     /// An aligned 32-bit draw.
     #[inline]
     pub fn next_u32(&mut self) -> u32 {
-        self.next(32) as u32
+        let mut p = self.pos;
+        if p.wrapping_sub(self.base) & !0x3e0 != 0 {
+            p = align(p, 32);
+            self.load_row(p >> 10);
+        }
+        self.pos = p + 32;
+        self.o[((p >> 10) & 1) as usize][((p >> 5) & 31) as usize]
     }
     /// An aligned 64-bit draw.
     #[inline]
     pub fn next_u64(&mut self) -> u64 {
-        self.next(64)
+        let mut p = self.pos;
+        if p.wrapping_sub(self.base) & !0x3c0 != 0 {
+            p = align(p, 64);
+            self.load_row(p >> 10);
+        }
+        self.pos = p + 64;
+        let w = &self.o[((p >> 10) & 1) as usize];
+        let i = ((p >> 5) & 30) as usize;
+        u64::from(w[i]) | u64::from(w[i + 1]) << 32
     }
     /// An aligned 128-bit draw.
     #[inline]
