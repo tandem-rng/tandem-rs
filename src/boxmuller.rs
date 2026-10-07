@@ -151,10 +151,29 @@ pub(crate) fn radius32(a: f32) -> f32 {
     sqrtf(neg2_log32(1.0 - a))
 }
 
-/// `-ln(1 - a)` in `f32`.
+/// `-ln(1 - a)` in `f32`, tandem-c's `neg_log_f32`: within 0.571 ulp for every `a` on the 2^-24
+/// grid, so that `1 - exp(-x)` maps each draw back to its own grid point. `u = (2 - 2m) / (m + 1)`
+/// is carried as `uh + r / d` with `m + 1 = d + dl` exactly, and `nk ln2_hi + uh` is split by
+/// fast two-sum, exact because `nk ln2_hi` is either 0 or larger than `|uh|`.
 #[inline(always)]
 pub(crate) fn exponential_f32(a: f32) -> f32 {
-    0.5 * neg2_log32(1.0 - a)
+    let ix = (1.0 - a).to_bits().wrapping_add(0x004a_fb0d);
+    let nk = (127 - (ix >> 23) as i32) as f32;
+    let mant = f32::from_bits((ix & 0x007f_ffff) + 0x3f35_04f3);
+    let num = fmaf(mant, -2.0, 2.0);
+    let d = mant + 1.0;
+    let dl = mant - (d - 1.0);
+    let rcp = 1.0 / d;
+    // An fma, as in tandem-c, where it keeps a contracting compiler from fusing num * rcp into
+    // the two-sum.
+    let uh = fmaf(num, rcp, 0.0);
+    let r = fmaf(-uh, dl, fmaf(-uh, d, num));
+    let v = uh * uh;
+    let q = fmaf(v, fmaf(v, 0.0023109776, 0.012496489), 0.08333336);
+    let k_hi = nk * 0.693_145_75;
+    let hi = k_hi + uh;
+    let e = uh - (hi - k_hi);
+    hi + fmaf(uh * v, q, fmaf(r, rcp, fmaf(nk, 1.428_606_8e-6, e)))
 }
 
 /// `(cos, sin)` of `2 pi b` in `f32`.

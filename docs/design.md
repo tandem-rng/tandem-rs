@@ -98,7 +98,10 @@ position, which defeats store forwarding and doubles the cost of a scalar draw.
 
 - Exponentials of rate 1, `-ln(1 - u)` from one uniform each, defined in Appendix A of the
   specification. Element `i` of a fill is draw `i`, so a fill cut anywhere equals the whole and
-  the scalar draws. `f32` draws run in `f32`. The logarithm is the normals', so with `std` the
-  values are bit identical to tandem-c's and `tandem-cuda`'s, and the x86_64 build with
+  the scalar draws. `f32` draws run in `f32`. The `f64` logarithm is the normals'. The `f32`
+  one is tandem-c's `neg_log_f32`, which carries `(2 - 2m) / (m + 1)` in two floats and adds
+  `k ln 2` by an exact two-sum, within 0.571 ulp, so `1 - exp(-x)` maps every draw back to its
+  own 2^-24 grid point. With `std` the values are bit identical to tandem-c's and
+  `tandem-cuda`'s, and the x86_64 build with
   `simd-intrinsics` picks the `fma` copy of the loop at run time as for the `f32` normals. A length
   of 0 leaves the position unchanged.
