@@ -29,7 +29,7 @@ struct Bufs {
 }
 
 /// The rows of a third-party generator: rand's fills and draws, one sample per element.
-fn baseline<R: Rng>(rng: &mut R, b: &mut Bufs) -> [f64; 7] {
+fn baseline<R: Rng>(rng: &mut R, b: &mut Bufs) -> [f64; 8] {
     [
         best(N * 4, || rng.fill(black_box(&mut b.u32s[..]))),
         best(N * 8, || rng.fill(black_box(&mut b.u64s[..]))),
@@ -54,6 +54,13 @@ fn baseline<R: Rng>(rng: &mut R, b: &mut Bufs) -> [f64; 7] {
             let mut acc = 0.0;
             for _ in 0..N {
                 acc += rng.random::<f64>();
+            }
+            black_box(acc);
+        }),
+        best(N * 8, || {
+            let mut acc = 0u64;
+            for _ in 0..N {
+                acc = acc.wrapping_add(rng.next_u64());
             }
             black_box(acc);
         }),
@@ -89,6 +96,13 @@ fn main() {
             }
             black_box(acc);
         }),
+        best(N * 8, || {
+            let mut acc = 0u64;
+            for _ in 0..N {
+                acc = acc.wrapping_add(rng.next_u64());
+            }
+            black_box(acc);
+        }),
     ];
     let small = baseline(&mut SmallRng::seed_from_u64(42), &mut b);
     let std = baseline(&mut StdRng::seed_from_u64(42), &mut b);
@@ -100,6 +114,7 @@ fn main() {
         "fill_exponential_f32",
         "fill_exponential_f64",
         "next_f64 chain",
+        "next_u64 chain",
     ];
     println!("GiB/s                        Tandem  SmallRng    StdRng");
     for i in 0..labels.len() {
