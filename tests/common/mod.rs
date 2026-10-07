@@ -1,5 +1,5 @@
 //! Readers for the spec's conformance files in tests/conformance, byte-identical copies of
-//! tandem-spec b31af72 conformance/*.json, unchanged since f420545. CI checks the copies.
+//! tandem-spec 2a4bd08 conformance/*.json. CI checks the copies.
 #![allow(dead_code)]
 
 use serde_json::Value;
