@@ -13,7 +13,7 @@
 use ::rand::Rng;
 use ::rand::distr::Distribution;
 
-use crate::boxmuller::{exponential_f32, exponential_f64, pair_f32};
+use crate::boxmuller::{Native, exponential_f32, exponential_f64, pair_f32};
 use crate::derived::{below_u32, below_u64};
 use crate::ziggurat::normal_f64_on;
 use crate::{Tandem, to_f32, to_f64};
@@ -69,21 +69,21 @@ impl Distribution<[f32; 2]> for StandardNormal {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> [f32; 2] {
         let a = to_f32(rng.next_u32());
         let b = to_f32(rng.next_u32());
-        pair_f32(a, b)
+        pair_f32::<Native>(a, b)
     }
 }
 
 impl Distribution<f64> for Exp1 {
     #[inline]
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> f64 {
-        exponential_f64(to_f64(rng.next_u64()))
+        exponential_f64::<Native>(to_f64(rng.next_u64()))
     }
 }
 
 impl Distribution<f32> for Exp1 {
     #[inline]
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> f32 {
-        exponential_f32(to_f32(rng.next_u32()))
+        exponential_f32::<Native>(to_f32(rng.next_u32()))
     }
 }
 

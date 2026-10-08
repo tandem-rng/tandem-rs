@@ -409,9 +409,8 @@ fn le<T: Default + Clone, B: AsRef<[u8]>>(
         .collect()
 }
 
-/// The long dumps of tandem-c: bit identical with `std`, whose fused multiply-add is
-/// tandem-c's. The `f32` normal hash holds because the crate copies the C polynomials.
-#[cfg(feature = "std")]
+/// The long dumps of tandem-c, bit identical in every build. The `f32` normal hash holds
+/// because the crate copies the C polynomials.
 #[test]
 fn dump_hashes() {
     fn fnv(h: u64, bytes: &[u8]) -> u64 {

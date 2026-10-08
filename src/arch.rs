@@ -212,17 +212,17 @@ mod avx2 {
 
     #[target_feature(enable = "avx2,fma")]
     unsafe fn exponential_block_f64_avx2_fma(z: &mut [f64]) {
-        crate::boxmuller::exponential_block_f64_body(z)
+        crate::boxmuller::exponential_block_f64_body::<crate::boxmuller::Fused>(z)
     }
 
     #[target_feature(enable = "avx2,fma")]
     unsafe fn exponential_block_f32_avx2_fma(z: &mut [f32]) {
-        crate::boxmuller::exponential_block_f32_body(z)
+        crate::boxmuller::exponential_block_f32_body::<crate::boxmuller::Fused>(z)
     }
 
     #[target_feature(enable = "avx2,fma")]
     unsafe fn block_f32_avx2_fma(u: &[f32], z: &mut [f32]) {
-        crate::boxmuller::block_f32_body(u, z)
+        crate::boxmuller::block_f32_body::<crate::boxmuller::Fused>(u, z)
     }
 
     /// The loop of `run_rows` on 256-bit registers.

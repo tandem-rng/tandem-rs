@@ -49,6 +49,9 @@ jobs:
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo test --no-default-features
       - run: cargo test --no-default-features --features alloc,rand
+      # The portable std build, without the intrinsics that are now on by default.
+      - run: cargo clippy --all-targets --no-default-features --features std -- -D warnings
+      - run: cargo test --no-default-features --features std
   gpu:
     name: ${{ matrix.os }} / wgpu
     runs-on: ${{ matrix.os }}

@@ -4,8 +4,8 @@
 
 use crate::Tandem;
 use crate::boxmuller::{
-    block_f32, exponential_block_f32, exponential_block_f64, exponential_f32, exponential_f64,
-    pair_f32,
+    Native, block_f32, exponential_block_f32, exponential_block_f64, exponential_f32,
+    exponential_f64, pair_f32,
 };
 
 /// Reserved purposes of the fallback generators of the bounded fills.
@@ -130,7 +130,7 @@ impl Tandem {
     #[inline]
     pub fn normal2_f32(&mut self) -> [f32; 2] {
         let (first, second) = (self.next_f32(), self.next_f32());
-        pair_f32(first, second)
+        pair_f32::<Native>(first, second)
     }
 
     /// Fill with standard normals. Pair `j` is elements `2j` and `2j + 1`, cos half first,
@@ -142,7 +142,7 @@ impl Tandem {
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
             self.fill_f32(draws);
-            normals(draws, chunk, block_f32, pair_f32);
+            normals(draws, chunk, block_f32, pair_f32::<Native>);
         }
     }
 
@@ -150,14 +150,14 @@ impl Tandem {
     /// [`fill_exponential_f64`](Self::fill_exponential_f64).
     #[inline]
     pub fn exponential_f64(&mut self) -> f64 {
-        exponential_f64(self.next_f64())
+        exponential_f64::<Native>(self.next_f64())
     }
 
     /// The `f32` form of [`exponential_f64`](Self::exponential_f64), from one `f32` draw and
     /// computed in `f32`. It matches tandem-c bit for bit.
     #[inline]
     pub fn exponential_f32(&mut self) -> f32 {
-        exponential_f32(self.next_f32())
+        exponential_f32::<Native>(self.next_f32())
     }
 
     /// Fill with exponentials of rate 1. Element `i` is `-ln(1 - u)` for draw `i` of the

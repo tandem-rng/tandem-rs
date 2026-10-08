@@ -35,9 +35,10 @@ serde_json = "1"
 sha2 = "0.11"
 
 [features]
-default = ["std"]
-# Fused multiply-adds and the square root of the normals from the standard library. Without
-# it the crate is `no_std`, with the same stream and normals that differ in the last bits.
+default = ["std", "simd-intrinsics"]
+# The square root of the normals and the FMA instruction from the standard library, and the
+# run-time AVX2 check of `simd-intrinsics`. Without it the crate is `no_std`, with the same
+# stream and normals: every multiply-add then rounds once by an exact emulation.
 std = ["alloc"]
 # The weighted choice of Appendix C, whose table needs an allocator.
 alloc = []
@@ -48,8 +49,9 @@ rand = ["dep:rand", "dep:typeid"]
 rayon = ["dep:rayon", "std"]
 # Serialize and Deserialize for `Tandem` through its transport form.
 serde = ["dep:serde"]
-# NEON and SSE2 intrinsics for the widening multiply and the float row stores. Admits
-# `unsafe` in one module. The stream is the same.
+# NEON and SSE2 intrinsics for the widening multiply and the float row stores, and with `std`
+# on x86_64 the AVX2 and FMA loops picked at run time. On by default. Admits `unsafe` in one
+# module. The stream is the same without it.
 simd-intrinsics = []
 # GPU fills through wgpu. Pulls in std.
 wgpu = ["dep:wgpu", "dep:pollster", "std"]
