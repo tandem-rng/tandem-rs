@@ -13,7 +13,7 @@ fills on CPUs, `rayon` fills, and a `wgpu` fill on GPUs.
 
 ```toml
 tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs" }
-# optional features: std (default), rayon, serde, simd-intrinsics, wgpu
+# features: std and simd-intrinsics (default), rayon, serde, wgpu
 ```
 
 Rust 1.89, edition 2024. The crate is `no_std` without the default `std` feature.

@@ -14,7 +14,7 @@ Rust 1.89, edition 2024. The crate is `no_std` without the default `std` feature
 
 ```toml
 tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs" }
-# optional features: std (default), alloc, rand, rayon, serde, simd-intrinsics, wgpu
+# features: std and simd-intrinsics (default), alloc, rand, rayon, serde, wgpu
 ```
 
 ```rust
@@ -24,10 +24,13 @@ let mut rng = Tandem::new(42);                 // 128-bit seed, default K
 let mut words = vec![0u32; 1 << 20];
 rng.fill_u32(&mut words);
 let mut worker = rng.split(7);                 // by index, from the key alone
-let z = worker.normal_f64();                   // ziggurat, bit identical to tandem-c with std
+let z = worker.normal_f64();                   // ziggurat, bit identical to tandem-c
 ```
 
 - Inline 32- and 64-bit scalar draws, within a few percent of `SmallRng` in a loop on an Apple M4.
+- A plain `cargo add tandem-rng` runs the AVX2 and FMA loops on every x86_64 CPU that has them,
+  picked at run time. Without FMA hardware, and in `no_std`, each fused multiply-add rounds once
+  by an exact emulation, with the same bits and no library call.
 
 See [API](docs/api.md) for the `rand` traits, features and GPU fill, and
 [design](docs/design.md), [tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
