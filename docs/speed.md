@@ -29,18 +29,19 @@ into the other of its two row slots, so no draw reads a row just stored. Before 
 
 | AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 | `SmallRng` | `StdRng` |
 |---|---|---|---|---|---|
-| `fill_u32` | 5.7 | 5.8 | 11.9 | 6.3 | 3.0 |
-| `fill_u64` | 5.6 | 5.8 | 11.6 | 6.3 | 3.0 |
-| `fill_f32` | 5.0 | 5.2 | 9.0 | 3.0 | 1.9 |
-| `fill_f64` | 3.8 | 4.4 | 7.2 | 5.9 | 2.2 |
-| `fill_exponential_f32` | 0.27 | 0.28 | 4.2 | 1.4 | 0.64 |
-| `fill_exponential_f64` | 0.23 | 0.33 | 3.0 | 2.7 | 1.4 |
-| `next_f64` chain | 1.6 | 1.6 | 2.1 | 5.9 | 2.3 |
+| `fill_u32` | 5.6 | 5.8 | 11.1 | 6.3 | 2.9 |
+| `fill_u64` | 5.6 | 5.8 | 11.0 | 6.2 | 3.0 |
+| `fill_f32` | 5.1 | 5.2 | 8.9 | 3.0 | 1.9 |
+| `fill_f64` | 3.8 | 4.3 | 7.0 | 5.9 | 2.2 |
+| `fill_exponential_f32` | 0.15 | 0.15 | 3.4 | 1.3 | 0.67 |
+| `fill_exponential_f64` | 0.23 | 0.33 | 2.9 | 2.7 | 1.4 |
+| `next_u64` chain | 3.0 | 3.1 | 4.2 | 7.3 | 2.4 |
+| `next_f64` chain | 2.7 | 2.8 | 3.6 | 5.8 | 2.3 |
 
-Every EPYC figure comes from one session on one pinned core and is the median of three runs.
-That session predates the inline scalar draws, so the chain row shows the old draws.
+Every EPYC figure comes from one session on one pinned core, rustc 1.99, and is the median of
+three runs. Before the inline scalar draws, the `next_f64` chain ran at 1.6 GiB/s.
 The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Only the AVX2 build leads
-`SmallRng` on the fills.
+`SmallRng` on the integer and `f64` fills.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
 thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column
