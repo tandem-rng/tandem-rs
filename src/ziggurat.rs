@@ -4,7 +4,7 @@
 //! `from_key(key, 0, K).sub(PURPOSE_NORMAL64).split(g)`, where `g` is the global index of the
 //! draw. So element `i` depends on draw `i` alone, and a fill cut anywhere equals the whole.
 
-use crate::boxmuller::neg2_log;
+use crate::boxmuller::{Native, neg2_log};
 use crate::zig_tables::{K, R, W, Y};
 use crate::{AUX_STREAM, DOMAIN_SPLIT, DOMAIN_STREAM, Tandem, align, block, f_lanes, to_f64};
 
@@ -99,15 +99,15 @@ fn slow(mut r: u64, mut next: impl FnMut() -> u64) -> f64 {
         if i == 0 {
             // The tail beyond R, by Marsaglia's method.
             loop {
-                let a = 0.5 * neg2_log(1.0 - to_f64(next())) / R;
-                let b = 0.5 * neg2_log(1.0 - to_f64(next()));
+                let a = 0.5 * neg2_log::<Native>(1.0 - to_f64(next())) / R;
+                let b = 0.5 * neg2_log::<Native>(1.0 - to_f64(next()));
                 if b + b >= a * a {
                     return if (r >> 10) & 1 == 1 { -(R + a) } else { R + a };
                 }
             }
         }
         let y = Y[i] + to_f64(next()) * (Y[i + 1] - Y[i]);
-        if -0.5 * neg2_log(y) < -0.5 * (x * x) {
+        if -0.5 * neg2_log::<Native>(y) < -0.5 * (x * x) {
             return x;
         }
         r = next();

@@ -16,32 +16,43 @@ the position in a register. Their one call, the row refill, also steps the cache
 into the other of its two row slots, so no draw reads a row just stored. Before that, the
 `next_f64` chain ran at 6.9 GiB/s.
 
-| Apple M4 Pro | default | `simd-intrinsics` | `SmallRng` | `StdRng` |
+The default features are `std` and `simd-intrinsics`, so a plain dependency gets the default
+column. The portable column is `--no-default-features --features std`. On the M4 the two
+builds compile to the same AArch64 instructions as before `simd-intrinsics` became a default,
+so the figures stand from their session: the default column was measured as the
+`simd-intrinsics` build, the portable column as the former default.
+
+| Apple M4 Pro | default | portable | `SmallRng` | `StdRng` |
 |---|---|---|---|---|
-| `fill_u32` | 19.3 | 19.2 | 10.5 | 2.7 |
-| `fill_u64` | 19.2 | 19.1 | 10.6 | 2.7 |
-| `fill_f32` | 16.6 | 16.8 | 5.4 | 2.0 |
+| `fill_u32` | 19.2 | 19.3 | 10.5 | 2.7 |
+| `fill_u64` | 19.1 | 19.2 | 10.6 | 2.7 |
+| `fill_f32` | 16.8 | 16.6 | 5.4 | 2.0 |
 | `fill_f64` | 16.7 | 16.7 | 10.7 | 2.3 |
-| `fill_exponential_f32` | 6.4 | 6.5 | 3.0 | 0.88 |
+| `fill_exponential_f32` | 6.5 | 6.4 | 3.0 | 0.88 |
 | `fill_exponential_f64` | 5.9 | 5.9 | 6.0 | 1.8 |
-| `next_u64` chain | 10.3 | 10.1 | 10.7 | 2.6 |
-| `next_f64` chain | 9.5 | 9.3 | 10.4 | 2.5 |
+| `next_u64` chain | 10.1 | 10.3 | 10.7 | 2.6 |
+| `next_f64` chain | 9.3 | 9.5 | 10.4 | 2.5 |
 
-| AMD EPYC 7702P | default | `simd-intrinsics`, SSE2 | `simd-intrinsics`, AVX2 | `SmallRng` | `StdRng` |
+| AMD EPYC 7702P | default | default, `TANDEM_NO_AVX2` | portable | `SmallRng` | `StdRng` |
 |---|---|---|---|---|---|
-| `fill_u32` | 5.6 | 5.8 | 11.1 | 6.3 | 2.9 |
-| `fill_u64` | 5.6 | 5.8 | 11.0 | 6.2 | 3.0 |
-| `fill_f32` | 5.1 | 5.2 | 8.9 | 3.0 | 1.9 |
-| `fill_f64` | 3.8 | 4.3 | 7.0 | 5.9 | 2.2 |
-| `fill_exponential_f32` | 0.15 | 0.15 | 3.4 | 1.3 | 0.67 |
-| `fill_exponential_f64` | 0.23 | 0.33 | 2.9 | 2.7 | 1.4 |
-| `next_u64` chain | 3.0 | 3.1 | 4.2 | 7.3 | 2.4 |
-| `next_f64` chain | 2.7 | 2.8 | 3.6 | 5.8 | 2.3 |
+| `fill_u32` | 11.1 | 5.8 | 5.6 | 6.3 | 2.9 |
+| `fill_u64` | 11.0 | 5.8 | 5.6 | 6.2 | 3.0 |
+| `fill_f32` | 8.9 | 5.2 | 5.1 | 3.0 | 1.9 |
+| `fill_f64` | 7.0 | 4.3 | 3.8 | 5.9 | 2.2 |
+| `fill_exponential_f32` | 3.4 | 0.15 | 0.15 | 1.3 | 0.67 |
+| `fill_exponential_f64` | 2.9 | 0.33 | 0.23 | 2.7 | 1.4 |
+| `next_u64` chain | 4.2 | 3.1 | 3.0 | 7.3 | 2.4 |
+| `next_f64` chain | 3.6 | 2.8 | 2.7 | 5.8 | 2.3 |
 
-Every EPYC figure comes from one session on one pinned core, rustc 1.99, and is the median of
-three runs. Before the inline scalar draws, the `next_f64` chain ran at 1.6 GiB/s.
-The SSE2 column is the AVX2 build with `TANDEM_NO_AVX2` set. Only the AVX2 build leads
-`SmallRng` on the integer and `f64` fills.
+A plain dependency now gets the default column on every x86_64 CPU with AVX2 and FMA. Every
+EPYC figure comes from one session on one pinned core, rustc 1.99, and is the median of three
+runs. That session predates the new defaults and the exact fma emulation. The default column
+is the former `simd-intrinsics` build with AVX2, whose code is unchanged. The
+`TANDEM_NO_AVX2` column, the SSE2 path of the default build, and the portable column
+(`--no-default-features --features std`) await a remeasure: their exponential rows still show
+the library `fma` call that the emulation replaces. Before the inline scalar draws, the
+`next_f64` chain ran at 1.6 GiB/s. Only the AVX2 path leads `SmallRng` on the integer and
+`f64` fills.
 
 The `rand` distributions, `cargo run --release --features rand --example bench_distr`, one
 thread, 2^22 elements, in GiB/s of output, each run the minimum of seven. The inherent column
@@ -70,9 +81,11 @@ generator per 2^16 elements by chunk index. Its normals are `rand_distr::Standar
 | `fill_normal_f64` | 7.3 | 70 | 6.2 | 56 |
 | `fill_normal_f32` | 4.5 | 42 | 3.1 | 28 |
 
-Without AVX2 and FMA the x86_64 target has no fused instruction, so each `mul_add` of the
-exponentials and normals is a library call, which is why the default and SSE2 columns of the
-EPYC table fall behind `rand_distr::Exp1`. Those two columns use no AVX2.
+Without AVX2 and FMA the x86_64 target has no fused instruction. Each multiply-add of the
+exponentials and normals there now rounds once by an exact emulation in the vectorized loop,
+with the same bits. The `TANDEM_NO_AVX2` and portable columns of the EPYC table still show
+the library `fma` call it replaces, which is why their exponential rows fall behind
+`rand_distr::Exp1`.
 
 ## GPU
 

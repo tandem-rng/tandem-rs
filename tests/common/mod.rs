@@ -66,21 +66,12 @@ pub fn f32s(c: &Value) -> Vec<f32> {
         .collect()
 }
 
-/// Bit equality with `std`, whose fused multiply-add is tandem-c's. Without it the plain
-/// `a * b + c` differs in the last bits.
+/// Bit equality: every build rounds each multiply-add once, as tandem-c does.
 pub fn same_f64(got: f64, want: f64) -> bool {
-    if cfg!(feature = "std") {
-        got.to_bits() == want.to_bits()
-    } else {
-        (got - want).abs() <= 1e-12 * want.abs() + 1e-15
-    }
+    got.to_bits() == want.to_bits()
 }
 
-/// Bit equality with `std`, else the tolerance `tol` of the conformance files.
+/// Bit equality, even where the conformance files allow a tolerance.
 pub fn same_f32(got: f32, want: f32) -> bool {
-    if cfg!(feature = "std") {
-        got.to_bits() == want.to_bits()
-    } else {
-        (got - want).abs() <= 16.0 * f32::EPSILON * want.abs() + 1e-6
-    }
+    got.to_bits() == want.to_bits()
 }

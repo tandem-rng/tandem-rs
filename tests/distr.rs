@@ -234,7 +234,6 @@ fn foreign_generators_get_standard_normals() {
     }
 }
 
-#[cfg(feature = "std")]
 mod hashes {
     //! The `f64` and `f32` normal dumps of hashes.json through `rng.sample` and `sample_iter`.
     use super::*;

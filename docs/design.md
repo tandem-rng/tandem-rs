@@ -2,13 +2,14 @@
 
 ## Fills
 
-- `no_std` and `#![forbid(unsafe_code)]`. The default `std` feature only adds fused
-  multiply-adds and the square root from the standard library. Two dependencies: `rand_core`
-  for the traits and `wide` for portable vectors, which lower to NEON, SSE/AVX2 or scalar code.
+- `no_std` and `#![forbid(unsafe_code)]` with `--no-default-features`. The default `std`
+  feature adds the FMA instruction and the square root from the standard library, and the
+  run-time AVX2 check. Two dependencies: `rand_core` for the traits and `wide` for portable
+  vectors, which lower to NEON, SSE/AVX2 or scalar code.
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`)
   plus a cache of two 1024-bit rows, 432 bytes in all, the layout of tandem-c. It is `Copy`.
-- The `simd-intrinsics` feature spells the widening multiply and the float row stores with
-  NEON or SSE2 intrinsics. With `std` on x86_64 it also runs the row step, the seeding and
+- The `simd-intrinsics` feature, on by default, spells the widening multiply and the float row
+  stores with NEON or SSE2 intrinsics. With `std` on x86_64 it also runs the row step, the seeding and
   the transpose on 256-bit AVX2 registers when the CPU has them, chosen at run time, so the
   eight lanes of a group fill one register per state word. Setting `TANDEM_NO_AVX2` turns
   the AVX2 path off. It admits `unsafe` in one private module, so the crate root then says
@@ -73,12 +74,15 @@ position, which defeats store forwarding and doubles the cost of a scalar draw.
   `f32` on whole blocks of uniforms in plain Rust that the compiler vectorises, with
   tandem-c's arithmetic: an exponent split and a short atanh series for the logarithm, an
   exact quarter-turn reduction for the sine and cosine. No libm is called.
-- With `std` every multiply-add of the logarithm and the `f32` normals is a fused `mul_add`,
-  so both kinds of normal are bit identical to tandem-c's on every target, and to each other
-  across scalar draws and fills. The x86_64 build with `simd-intrinsics` compiles a copy of
-  the `f32` loop with `fma` and picks it at run time. Without a fused instruction `mul_add` is
-  a correct but slower library call, which the ziggurat meets only on its rare slow path.
-  Without `std` the plain form differs from tandem-c in the last bits.
+- Every multiply-add of the logarithm and the `f32` normals is fused, rounded once, so both
+  kinds of normal and the exponentials are bit identical to tandem-c's on every target and in
+  `no_std`, and to each other across scalar draws and fills. The x86_64 build with
+  `simd-intrinsics` compiles a copy of these loops with `fma` and picks it at run time, and
+  targets built with FMA use `mul_add`. Elsewhere `mul_add` would be a library call that keeps
+  the loops scalar, and `no_std` has none, so each multiply-add is an exact emulation: `f32`
+  takes the product exactly in `f64` and rounds the sum to odd before the rounding to `f32`,
+  and `f64` adds Dekker's exact product by two error-free sums, the last rounded to odd (Boldo
+  and Melquiond, IEEE Trans. Computers 57, 2008).
 
 ## Weighted choice
 

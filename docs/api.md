@@ -54,8 +54,8 @@ let z: f64 = rng.sample(StandardNormal);
   `par_fill_below_u64`, `par_fill_normal_f64`, `par_fill_normal_f32`, `par_fill_choice`. Each
   equals its serial fill.
 - `serde`: `Serialize` and `Deserialize` through the transport form.
-- `simd-intrinsics`: NEON, SSE2 and run-time AVX2 row steps. It admits `unsafe` in one module.
-  Set `TANDEM_NO_AVX2` to turn the AVX2 path off.
+- `simd-intrinsics`, on by default: NEON, SSE2 and run-time AVX2 and FMA loops. It admits
+  `unsafe` in one module. Set `TANDEM_NO_AVX2` to turn the AVX2 path off.
 - `wgpu`: `gpu::GpuFill` fills `u32` words on any GPU wgpu drives. It advances the generator as
   the CPU fill does, so CPU and GPU draws mix on one stream.
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
