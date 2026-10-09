@@ -110,12 +110,10 @@ fn two_sum(a: f64, b: f64) -> (f64, f64) {
 #[inline(always)]
 fn round_to_odd(s: f64, e: f64) -> f64 {
     let b = s.to_bits();
-    let step = if (e > 0.0) == (s > 0.0) { 1 } else { u64::MAX };
-    f64::from_bits(if e != 0.0 && b & 1 == 0 {
-        b.wrapping_add(step)
-    } else {
-        b
-    })
+    // Arithmetic, not a select, which LLVM's loop vectoriser can spend minutes on.
+    let away = u64::from((e > 0.0) != (s > 0.0));
+    let odd = u64::from((e != 0.0) & (b & 1 == 0));
+    f64::from_bits(b.wrapping_add(odd.wrapping_mul(1u64.wrapping_sub(2 * away))))
 }
 
 /// The multiply-add of code compiled for the crate's target.
@@ -349,7 +347,7 @@ mod tests {
     const SAMPLES: usize = 1_000_000;
 
     // Out of line: inlined into the loops below, the emulated multiply-adds of `no_std` take
-    // LLVM minutes to compile.
+    // LLVM over ten minutes to compile.
     #[inline(never)]
     fn log_error(x: f64) -> f64 {
         let want = -2.0 * x.ln();
