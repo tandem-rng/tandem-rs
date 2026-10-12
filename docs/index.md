@@ -7,7 +7,7 @@ fills on CPUs, `rayon` fills, and a `wgpu` fill on GPUs.
 - [API](api.md): the generator, the features, the derived draws and the GPU fill.
 - [Design](design.md): the row loop, the features, and how the derived draws work.
 - [Tests](tests.md): what each test file checks.
-- [Speed](speed.md): CPU, rayon and GPU figures.
+- [Performance](speed.md): CPU, rayon and GPU figures.
 
 ## Install
 

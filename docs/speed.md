@@ -1,4 +1,4 @@
-# Speed
+# Performance
 
 `cargo run --release --example bench`, `bench_distr`, `bench_par`, `bench_gpu` and
 `bench_curand` produce the figures.
