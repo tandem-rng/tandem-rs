@@ -10,12 +10,14 @@ Rust implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a noncr
 pseudorandom number generator. The crate `tandem-rng` produces the stream the specification
 defines, bit for bit, with SIMD fills on CPUs, `rayon` fills, and a `wgpu` fill on GPUs.
 
-Rust 1.89, edition 2024. The crate is `no_std` without the default `std` feature.
+## Install
 
 ```toml
 tandem-rng = { git = "https://github.com/tandem-rng/tandem-rs" }
 # features: std and simd-intrinsics (default), alloc, rand, rayon, serde, wgpu
 ```
+
+## Quick start
 
 ```rust
 use tandem_rng::Tandem;
@@ -32,9 +34,15 @@ let z = worker.normal_f64();                   // ziggurat, bit identical to tan
   picked at run time. Without FMA hardware, and in `no_std`, each fused multiply-add rounds once
   by an exact emulation, with the same bits and no library call.
 
+## Requirements
+
+Rust 1.89, edition 2024. The crate is `no_std` without the default `std` feature.
+
+## Documentation
+
 See [API](docs/api.md) for the `rand` traits, features and GPU fill, and
 [design](docs/design.md), [tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
 
 Portions of the code were generated with the assistance of LLMs.
 
-[Documentation](https://tandem-rng.github.io/tandem-rs/) · [Apache 2.0 license](LICENSE)
+[Docs](https://tandem-rng.github.io/tandem-rs/) · [Specification](https://github.com/tandem-rng/spec/blob/main/SPEC.md) · [Website](https://tandem-rng.github.io/) · [Issues](https://github.com/tandem-rng/tandem-rs/issues) · [License](LICENSE)
