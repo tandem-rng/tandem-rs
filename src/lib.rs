@@ -1012,7 +1012,12 @@ impl Tandem {
     /// Fork `n` children from the current block and move past it. The children depend on
     /// the block the parent is in, so successive forks give fresh children. The parent
     /// advances once per call, for an empty batch too.
+    ///
+    /// # Panics
+    ///
+    /// If `n > 2^33`, the specification's maximum batch size. The parent is then unchanged.
     pub fn fork(&mut self, n: u64) -> Fork {
+        assert!(n <= 1 << 33, "fork count must not exceed 2^33");
         let b = self.pos >> 7;
         self.pos = (b + 1) << 7;
         Fork {
