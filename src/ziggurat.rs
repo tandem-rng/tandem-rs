@@ -162,8 +162,9 @@ impl Tandem {
     /// Fill with standard normals. Element `i` comes from draw `i` of the `u64` fill and the
     /// fill consumes `out.len()` draws. An empty fill aligns the position to 64 bits.
     pub fn fill_normal_f64(&mut self, out: &mut [f64]) {
-        let first = align(self.pos, 64) / 64;
-        self.pos = 64 * first;
+        let (start, _) = crate::fill_span(self.pos, 64, out.len());
+        let first = start / 64;
+        self.pos = start;
         let mut sub = None;
         let mut draws = [0u64; BLOCK];
         // Misses queue across passes, so that their fallbacks are seeded eight at a time.

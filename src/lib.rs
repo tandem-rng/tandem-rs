@@ -386,6 +386,16 @@ pub(crate) fn align(pos: u64, w: u32) -> u64 {
     (pos + w - 1) & !(w - 1)
 }
 
+/// Plan the complete fill before changing the generator or output. Successors must fit
+/// in u64, including the alignment of an empty fill.
+fn fill_span(pos: u64, w: u32, n: usize) -> (u64, u64) {
+    let w = u64::from(w);
+    let start = pos.checked_add(w - 1).expect("fill alignment exceeds u64") & !(w - 1);
+    let bits = w.checked_mul(n as u64).expect("fill length exceeds u64");
+    let end = start.checked_add(bits).expect("fill endpoint exceeds u64");
+    (start, end)
+}
+
 #[inline(always)]
 pub(crate) fn to_f64(raw: u64) -> f64 {
     (raw >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
@@ -523,6 +533,8 @@ impl Elem for f64 {
 /// Equality and `Debug` cover the transport form only. Every method that draws aligns the
 /// position to the width of the value, reads, and advances past it, as the specification
 /// requires, so draws of mixed widths from one generator agree with the other references.
+/// Uniform fills panic before writing output if their aligned start or complete successor position
+/// does not fit in `u64`.
 // The cache holds the state of row `ahead` when `cached` is set: its exposed words in stream
 // order in `o[ahead & 1]` and its hidden words word-major in `h`. `base` is the bit position of
 // the row the scalar draws read, `o[(base >> 10) & 1]`: row `ahead`, or row `ahead - 1` while
@@ -587,8 +599,8 @@ impl Tandem {
         Self::unchecked(key, position, k)
     }
 
-    /// [`from_key`](Self::from_key) without the checks, for the generators of a running fill,
-    /// whose positions may pass 2^63.
+    /// [`from_key`](Self::from_key) without the checks, for fill tasks and restored successor
+    /// positions, which may pass 2^63.
     pub(crate) fn unchecked(key: [u32; 4], position: u64, k: u32) -> Self {
         Tandem {
             key,
@@ -861,8 +873,8 @@ impl Tandem {
     fn fill<T: Elem>(&mut self, out: &mut [T]) {
         let w = T::BITS;
         let per_row = (1024 / w) as usize;
-        let mut p = align(self.pos, w);
-        self.pos = p + u64::from(w) * out.len() as u64;
+        let (mut p, end) = fill_span(self.pos, w, out.len());
+        self.pos = end;
 
         let to_row = ((1024 - (p & 1023)) / u64::from(w)) as usize % per_row;
         let head = to_row.min(out.len());
@@ -937,12 +949,15 @@ impl Tandem {
     }
     /// Fill with single stream bits.
     pub fn fill_bool(&mut self, out: &mut [bool]) {
+        fill_span(self.pos, 1, out.len());
         for x in out {
             *x = self.next_bool();
         }
     }
     /// Fill with uniform Unicode scalar values.
     pub fn fill_char(&mut self, out: &mut [char]) {
+        let (start, _) = fill_span(self.pos, 64, out.len());
+        self.pos = start;
         for x in out {
             *x = self.next_char();
         }
@@ -997,7 +1012,12 @@ impl Tandem {
     /// Fork `n` children from the current block and move past it. The children depend on
     /// the block the parent is in, so successive forks give fresh children. The parent
     /// advances once per call, for an empty batch too.
+    ///
+    /// # Panics
+    ///
+    /// If `n > 2^33`, the specification's maximum batch size. The parent is then unchanged.
     pub fn fork(&mut self, n: u64) -> Fork {
+        assert!(n <= 1 << 33, "fork count must not exceed 2^33");
         let b = self.pos >> 7;
         self.pos = (b + 1) << 7;
         Fork {

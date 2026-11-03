@@ -206,6 +206,34 @@ fn mixed_widths_align() {
 }
 
 #[test]
+fn empty_char_fill_aligns_to_its_consumed_width() {
+    let mut rng = Tandem::from_key([1, 2, 3, 4], 33, 32);
+    rng.fill_char(&mut []);
+    assert_eq!(rng.position(), 64);
+    let mut aligned = Tandem::from_key(rng.key(), 64, 32);
+    assert_eq!(rng.next_char(), aligned.next_char());
+}
+
+#[test]
+fn fork_count_is_checked_before_advancing() {
+    let mut rng = Tandem::new(42);
+    let original = rng;
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            rng.fork((1 << 33) + 1);
+        }))
+        .is_err()
+    );
+    assert_eq!(rng, original);
+    let mut small = original;
+    let mut largest = rng.fork(1 << 33);
+    let mut two = small.fork(2);
+    assert_eq!(largest.next(), two.next());
+    assert_eq!(largest.next(), two.next());
+    assert_eq!(rng, small);
+}
+
+#[test]
 fn fills_split_anywhere() {
     // Head, whole rows and tail of a fill agree with one big fill at every offset.
     let mut whole = vec![0u16; 3000];

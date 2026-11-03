@@ -475,9 +475,8 @@ fn complex_draws_span_blocks() {
 
 #[test]
 fn start_positions_lie_below_2_63() {
-    // The checklist's fill that reaches 2^64 cannot be expressed here: starts lie below 2^63,
-    // and from there a slice would need 2^57 or more elements to reach 2^64 bits. A start
-    // of 2^63 or more panics instead, in from_key, set_position and Deserialize.
+    // Constructors and explicit seeks use the initial-position domain. Unsigned successors
+    // restored through transport, and their fill endpoints, are covered in tests/serde.rs.
     let last = (1u64 << 63) - 1;
     let key = [1, 2, 3, 4];
     let mut r = Tandem::from_key(key, last, 32);

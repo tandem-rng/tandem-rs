@@ -34,7 +34,9 @@ let z: f64 = rng.sample(StandardNormal);
 - `at_u32`, `at_u64`, `at_f32`, `at_f64` for random access without advancing.
 - `split`, `fork`, `sub`, `key`, `position`, `chunk_length`. `from_key` and `set_position`
   panic on a start position at or above 2^63, the bound of the specification, section 5.
-  Draws and fills may still move past 2^63.
+  Draws and fills may still move past 2^63. Fills check their complete unsigned 64-bit
+  endpoint before writing output. `fork(n)` requires `n <= 2^33` and panics before advancing
+  the parent if this limit is exceeded.
 - `below_u32`, `below_u64`, `fill_below_u32`, `fill_below_u64`. A fill cut anywhere equals the
   whole fill. An empty fill leaves the position where it is.
 - `normal_f64`, `normal_f32`, `normal2_f32`, `fill_normal_f64`, `fill_normal_f32`. `f64`
@@ -59,8 +61,8 @@ let z: f64 = rng.sample(StandardNormal);
 - `wgpu`: `gpu::GpuFill` fills `u32` words on any GPU wgpu drives. It advances the generator as
   the CPU fill does, so CPU and GPU draws mix on one stream.
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
-  transport form (key, position, `K`). Deserializing rejects an invalid `K` and a position at
-  or above 2^63.
+  transport form (key, position, `K`). Deserializing rejects an invalid `K` and restores
+  unsigned successor positions, including positions at or above 2^63.
 - `SeedableRng::from_seed` reads its 16 bytes as a little-endian 128-bit seed and whitens it as
   the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
   `let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());` reads the transport form.

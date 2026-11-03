@@ -1,5 +1,5 @@
-//! Parallel fills. Rows depend only on the key and the position, so whole rows fill
-//! independently and the result is the serial fill.
+//! Parallel fills with the serial stream. Tasks share no mutable state; large groups stay
+//! together so each task does not replay a long prefix of the same recurrence.
 
 use rayon::prelude::*;
 
@@ -10,9 +10,12 @@ const TASK_ROWS: usize = 1024;
 
 impl Tandem {
     fn par_fill<T: Elem + Send>(&mut self, out: &mut [T]) {
+        if self.k as usize > TASK_ROWS {
+            return self.par_by_draw(out, T::BITS, out.len(), 1, |rng, chunk| rng.fill(chunk));
+        }
         let w = u64::from(T::BITS);
         let per_row = (1024 / T::BITS) as usize;
-        let start = crate::align(self.pos, T::BITS);
+        let (start, _) = crate::fill_span(self.pos, T::BITS, out.len());
 
         // The head up to a row boundary and the tail past the last whole row are short, so
         // they go through the serial fill, which also moves the position.
@@ -77,7 +80,7 @@ impl Tandem {
     /// first draw, so no scratch buffer for the draws is needed.
     pub fn par_fill_normal_f64(&mut self, out: &mut [f64]) {
         let draws = out.len();
-        self.par_by_draw(out, 64, draws, Tandem::fill_normal_f64)
+        self.par_by_draw(out, 64, draws, 1, Tandem::fill_normal_f64)
     }
     /// [`fill_normal_f32`](Self::fill_normal_f32) across threads. An odd length consumes both
     /// draws of its last pair.
@@ -86,12 +89,12 @@ impl Tandem {
             return;
         }
         let draws = out.len().next_multiple_of(2);
-        self.par_by_draw(out, 32, draws, Tandem::fill_normal_f32)
+        self.par_by_draw(out, 32, draws, 2, Tandem::fill_normal_f32)
     }
     /// [`fill_choice`](Self::fill_choice) across threads.
     pub fn par_fill_choice(&mut self, out: &mut [u32], table: &crate::ChoiceTable) {
         let draws = out.len();
-        self.par_by_draw(out, 64, draws, |t, chunk| t.fill_choice(chunk, table))
+        self.par_by_draw(out, 64, draws, 1, |t, chunk| t.fill_choice(chunk, table))
     }
 
     /// Fill `out` from `draws` draws of width `w`, each task from its own first draw, so no
@@ -101,18 +104,37 @@ impl Tandem {
         out: &mut [T],
         w: u32,
         draws: usize,
+        unit: usize,
         fill: impl Fn(&mut Tandem, &mut [T]) + Sync,
     ) {
         // An even task size keeps every f32 pair inside one task.
         const TASK: usize = 8192;
-        let base = crate::align(self.pos, w);
+        let (base, end) = crate::fill_span(self.pos, w, draws);
         let (key, k) = (self.key, self.k);
+        let group = k as usize * (1024 / w) as usize;
+        let (base, out, task_size) = if group > TASK {
+            // Keep pairs together even when the first f32 draw has an odd index. In that
+            // case each task starts one draw past the group boundary, replaying one row.
+            let offset = (base / u64::from(w) % group as u64) as usize;
+            let head = ((group - offset) % group).next_multiple_of(unit);
+            if out.len() <= head || (head == 0 && out.len() <= group) {
+                fill(self, out);
+                return;
+            }
+            let (head_out, rest) = out.split_at_mut(head);
+            fill(self, head_out);
+            (base + u64::from(w) * head as u64, rest, group)
+        } else {
+            (base, out, TASK)
+        };
         let w = u64::from(w);
-        out.par_chunks_mut(TASK).enumerate().for_each(|(i, chunk)| {
-            let mut task = Tandem::unchecked(key, base + w * (i * TASK) as u64, k);
-            fill(&mut task, chunk);
-        });
-        self.pos = base + w * draws as u64;
+        out.par_chunks_mut(task_size)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let mut task = Tandem::unchecked(key, base + w * (i * task_size) as u64, k);
+                fill(&mut task, chunk);
+            });
+        self.pos = end;
     }
 
     /// [`fill_f64`](Self::fill_f64) across threads.
