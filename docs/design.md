@@ -14,8 +14,9 @@
   eight lanes of a group fill one register per state word. Setting `TANDEM_NO_AVX2` turns
   the AVX2 path off. It admits `unsafe` in one private module, so the crate root then says
   `deny(unsafe_code)` instead of `forbid`. The stream is the same.
-- The `rayon` feature splits the output at row boundaries, fills the parts on separate threads
-  and moves the position once, so the parallel fills equal the serial fills. It pulls in `std`.
+- The `rayon` feature splits the output at row boundaries. Large groups stay together to
+  avoid replaying their recurrence prefixes in each task. Derived fills also keep normal
+  pairs together. The values and final position equal the serial fills. It pulls in `std`.
 - The `wgpu` feature adds the same fill as a compute shader on any GPU wgpu drives.
 
 The eight lane states of a row stay in registers as `u32x4` vectors, the row store is a
