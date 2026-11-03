@@ -59,8 +59,8 @@ let z: f64 = rng.sample(StandardNormal);
 - `wgpu`: `gpu::GpuFill` fills `u32` words on any GPU wgpu drives. It advances the generator as
   the CPU fill does, so CPU and GPU draws mix on one stream.
 - The `serde` feature implements `Serialize` and `Deserialize` for `Tandem` through its
-  transport form (key, position, `K`). Deserializing rejects an invalid `K` and a position at
-  or above 2^63.
+  transport form (key, position, `K`). Deserializing rejects an invalid `K` and restores
+  unsigned successor positions, including positions at or above 2^63.
 - `SeedableRng::from_seed` reads its 16 bytes as a little-endian 128-bit seed and whitens it as
   the specification requires, and `SeedableRng::fork` is the specification's fork of one child.
   `let (key, pos, k) = (rng.key(), rng.position(), rng.chunk_length());` reads the transport form.

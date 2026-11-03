@@ -587,8 +587,8 @@ impl Tandem {
         Self::unchecked(key, position, k)
     }
 
-    /// [`from_key`](Self::from_key) without the checks, for the generators of a running fill,
-    /// whose positions may pass 2^63.
+    /// [`from_key`](Self::from_key) without the checks, for fill tasks and restored successor
+    /// positions, which may pass 2^63.
     pub(crate) fn unchecked(key: [u32; 4], position: u64, k: u32) -> Self {
         Tandem {
             key,
