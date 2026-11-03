@@ -12,7 +12,7 @@ impl Tandem {
     fn par_fill<T: Elem + Send>(&mut self, out: &mut [T]) {
         let w = u64::from(T::BITS);
         let per_row = (1024 / T::BITS) as usize;
-        let start = crate::align(self.pos, T::BITS);
+        let (start, _) = crate::fill_span(self.pos, T::BITS, out.len());
 
         // The head up to a row boundary and the tail past the last whole row are short, so
         // they go through the serial fill, which also moves the position.
@@ -105,14 +105,14 @@ impl Tandem {
     ) {
         // An even task size keeps every f32 pair inside one task.
         const TASK: usize = 8192;
-        let base = crate::align(self.pos, w);
+        let (base, end) = crate::fill_span(self.pos, w, draws);
         let (key, k) = (self.key, self.k);
         let w = u64::from(w);
         out.par_chunks_mut(TASK).enumerate().for_each(|(i, chunk)| {
             let mut task = Tandem::unchecked(key, base + w * (i * TASK) as u64, k);
             fill(&mut task, chunk);
         });
-        self.pos = base + w * draws as u64;
+        self.pos = end;
     }
 
     /// [`fill_f64`](Self::fill_f64) across threads.

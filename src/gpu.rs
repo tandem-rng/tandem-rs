@@ -11,7 +11,7 @@ use std::vec::Vec;
 
 use wgpu::util::DeviceExt;
 
-use crate::{Tandem, align, to_f32, to_f64};
+use crate::{Tandem, to_f32, to_f64};
 
 /// The shader source. `fill` is its entry point.
 pub const SHADER: &str = include_str!("tandem.wgsl");
@@ -155,8 +155,7 @@ impl GpuFill {
     /// Bytes a storage buffer needs for `n` values of `bits` width from the generator's
     /// aligned position: whole 16-byte blocks, at least one.
     pub fn buffer_size(rng: &Tandem, bits: u32, n: usize) -> u64 {
-        let p0 = align(rng.position(), bits);
-        let p1 = p0 + u64::from(bits) * n as u64;
+        let (p0, p1) = crate::fill_span(rng.position(), bits, n);
         let blocks = (p1.div_ceil(128)).saturating_sub(p0 >> 7).max(1);
         blocks * BLOCK_BYTES
     }
@@ -170,8 +169,7 @@ impl GpuFill {
 
     fn fill_bits(&self, rng: &mut Tandem, bits: u32, out: &wgpu::Buffer, n: usize) -> Span {
         let k = u64::from(rng.chunk_length());
-        let p0 = align(rng.position(), bits);
-        let p1 = p0 + u64::from(bits) * n as u64;
+        let (p0, p1) = crate::fill_span(rng.position(), bits, n);
         rng.pos = p1;
 
         let block_start = p0 >> 7;

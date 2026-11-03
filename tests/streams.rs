@@ -206,6 +206,15 @@ fn mixed_widths_align() {
 }
 
 #[test]
+fn empty_char_fill_aligns_to_its_consumed_width() {
+    let mut rng = Tandem::from_key([1, 2, 3, 4], 33, 32);
+    rng.fill_char(&mut []);
+    assert_eq!(rng.position(), 64);
+    let mut aligned = Tandem::from_key(rng.key(), 64, 32);
+    assert_eq!(rng.next_char(), aligned.next_char());
+}
+
+#[test]
 fn fills_split_anywhere() {
     // Head, whole rows and tail of a fill agree with one big fill at every offset.
     let mut whole = vec![0u16; 3000];

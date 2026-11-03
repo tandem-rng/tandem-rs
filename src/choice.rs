@@ -5,7 +5,7 @@
 use alloc::boxed::Box;
 use core::fmt;
 
-use crate::{Tandem, align};
+use crate::Tandem;
 
 /// Draws per pass of a fill: the draws stay in L1.
 const BLOCK: usize = 512;
@@ -180,7 +180,7 @@ impl Tandem {
     /// `u64` fill, with no retry, so the fill equals the scalar draws and a fill cut anywhere
     /// equals the whole. An empty fill aligns the position to 64 bits.
     pub fn fill_choice(&mut self, out: &mut [u32], table: &ChoiceTable) {
-        self.pos = align(self.pos, 64);
+        self.pos = crate::fill_span(self.pos, 64, out.len()).0;
         let mut draws = [0u64; BLOCK];
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len()];

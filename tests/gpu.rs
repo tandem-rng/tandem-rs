@@ -6,6 +6,14 @@ use std::fs;
 use tandem_rng::Tandem;
 use tandem_rng::gpu::GpuFill;
 
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn buffer_planning_checks_the_draw_count_without_allocating() {
+    let rng = Tandem::new(42);
+    assert!(std::panic::catch_unwind(|| GpuFill::buffer_size(&rng, 32, 1 << 59)).is_err());
+    assert_eq!(GpuFill::buffer_size(&rng, 32, 4), 16);
+}
+
 fn gpu() -> Option<GpuFill> {
     let g = GpuFill::new_default();
     if g.is_none() {

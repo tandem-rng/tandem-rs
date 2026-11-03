@@ -138,6 +138,10 @@ impl Tandem {
     /// [`normal2_f32`](Self::normal2_f32) sequence. An odd length uses the cos half of its
     /// last pair and still consumes both draws.
     pub fn fill_normal_f32(&mut self, out: &mut [f32]) {
+        if out.is_empty() {
+            return;
+        }
+        crate::fill_span(self.pos, 32, out.len().next_multiple_of(2));
         let mut draws = [0.0; BLOCK];
         for chunk in out.chunks_mut(BLOCK) {
             let draws = &mut draws[..chunk.len().next_multiple_of(2)];
@@ -163,6 +167,9 @@ impl Tandem {
     /// Fill with exponentials of rate 1. Element `i` is `-ln(1 - u)` for draw `i` of the
     /// `f64` fill, so a fill cut anywhere equals the whole and equals the scalar draws.
     pub fn fill_exponential_f64(&mut self, out: &mut [f64]) {
+        if !out.is_empty() {
+            crate::fill_span(self.pos, 64, out.len());
+        }
         for chunk in out.chunks_mut(EXP_BLOCK) {
             self.fill_f64(chunk);
             exponential_block_f64(chunk);
@@ -172,6 +179,9 @@ impl Tandem {
     /// The `f32` form of [`fill_exponential_f64`](Self::fill_exponential_f64), from the `f32`
     /// fill.
     pub fn fill_exponential_f32(&mut self, out: &mut [f32]) {
+        if !out.is_empty() {
+            crate::fill_span(self.pos, 32, out.len());
+        }
         for chunk in out.chunks_mut(EXP_BLOCK) {
             self.fill_f32(chunk);
             exponential_block_f32(chunk);

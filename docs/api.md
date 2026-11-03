@@ -34,7 +34,8 @@ let z: f64 = rng.sample(StandardNormal);
 - `at_u32`, `at_u64`, `at_f32`, `at_f64` for random access without advancing.
 - `split`, `fork`, `sub`, `key`, `position`, `chunk_length`. `from_key` and `set_position`
   panic on a start position at or above 2^63, the bound of the specification, section 5.
-  Draws and fills may still move past 2^63.
+  Draws and fills may still move past 2^63. Fills check their complete unsigned 64-bit
+  endpoint before writing output.
 - `below_u32`, `below_u64`, `fill_below_u32`, `fill_below_u64`. A fill cut anywhere equals the
   whole fill. An empty fill leaves the position where it is.
 - `normal_f64`, `normal_f32`, `normal2_f32`, `fill_normal_f64`, `fill_normal_f32`. `f64`
